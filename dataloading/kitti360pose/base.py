@@ -57,7 +57,7 @@ class Kitti360BaseDataset(Dataset):
         ]
 
         self.submap_descriptions = [
-            Kitti360BaseDataset.create_submap_description(pose, self.cells_dict[pose.cell_id])
+            Kitti360BaseDataset.create_objects_description(pose, self.cells_dict[pose.cell_id])
             for pose in self.poses
         ]
 

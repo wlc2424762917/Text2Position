@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="wanglichao@192.168.3.33:22 password" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="wanglichao@192.168.3.33:22 password (2)" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
     <option name="confirmBeforeUploading" value="false" />
     <serverData>
       <paths name="FNii_Futian_33">
@@ -10,31 +10,17 @@
           </mappings>
         </serverdata>
       </paths>
-      <paths name="Yanglab7">
-        <serverdata>
-          <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="wanglichao@192.168.3.31:22 password">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/home/wanglichao/Text2Pos-CVPR2022" local="$PROJECT_DIR$" web="/" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="wanglichao@192.168.3.31:22 password (2)">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/tmp/pycharm_project_1" local="$PROJECT_DIR$" />
-          </mappings>
-        </serverdata>
-      </paths>
       <paths name="wanglichao@192.168.3.33:22 password">
         <serverdata>
           <mappings>
-            <mapping deploy="/tmp/pycharm_project_639" local="$PROJECT_DIR$" />
+            <mapping deploy="/home/wanglichao/Text2Pos-CVPR2022" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="wanglichao@192.168.3.33:22 password (2)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/wanglichao/Text2Pos-CVPR2022" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>

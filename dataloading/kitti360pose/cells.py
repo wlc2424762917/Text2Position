@@ -97,7 +97,7 @@ class Kitti360CoarseDataset(Kitti360BaseDataset):
             if np.random.choice((True, False)):  # Horizontal
                 pose, cell, text, text_objects, text_submap = flip_pose_in_cell(pose, cell, text, text_objects, text_submap, 1)
             if np.random.choice((True, False)):  # Vertical
-                pose, cell, text, text_objects, text_submap = flip_pose_in_cell(pose, cell, text, text_objects, text_submap, -1)
+                pose, cell, text, text_objects, text_submap = flip_pose_in_cell(pose, cell, text, text_objects, text_submap, direction=-1)
 
         object_points = batch_object_points(cell.objects, self.transform)
 

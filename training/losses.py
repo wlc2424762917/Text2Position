@@ -314,7 +314,7 @@ class ClipLoss(nn.Module):
 
         return logits_per_image, logits_per_text
 
-    def forward(self, image_features, text_features, logit_scale, output_dict=False):
+    def forward(self, image_features, text_features, logit_scale=np.log(10), output_dict=False):
         device = image_features.device
         logits_per_image, logits_per_text = self.get_logits(image_features, text_features, logit_scale)
 
@@ -324,7 +324,7 @@ class ClipLoss(nn.Module):
                              F.cross_entropy(logits_per_image, labels) +
                              F.cross_entropy(logits_per_text, labels)
                      ) / 2
-
+        print(f"contrastive_loss: {total_loss}")
         return {"contrastive_loss": total_loss} if output_dict else total_loss
 
 

@@ -41,9 +41,15 @@ def train_epoch(model, dataloader, args):
         batch_size = len(batch["texts"])
         optimizer.zero_grad()
         anchor = model.encode_text(batch["texts"])
-        anchor_objects = model.encode_text_objects(batch["text_objects"])
-        anchor_submap = model.encode_text_submap(batch["text_submap"])
+        anchor_objects = model.encode_text_objects(batch["texts_objects"])
+        anchor_submap = model.encode_text_submap(batch["texts_submap"])
         positive = model.encode_objects(batch["objects"], batch["object_points"])
+        # print("anchor_object: ", anchor_objects.shape)
+        # print("anchor_submap: ", anchor_submap.shape)
+        # print("anchor", anchor.shape)
+        # print("positive", positive.shape)
+        # quit()
+
         if args.ranking_loss == "triplet":
             negative_cell_objects = [cell.objects for cell in batch["negative_cells"]]
             negative = model.encode_objects(negative_cell_objects)
@@ -108,7 +114,7 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
     t0 = time.time()
     index_offset = 0
     for batch in dataloader:
-        print(f"eval: \r{index_offset}/{len(dataloader.dataset)}", end="", flush=True)
+        #print(f"eval: \r{index_offset}/{len(dataloader.dataset)}", end="", flush=True)
         text_enc = model.encode_text(batch["texts"])
         batch_size = len(text_enc)
 
@@ -277,7 +283,7 @@ if __name__ == "__main__":
             criterion = HardestRankingLoss(margin=args.margin)
         if args.ranking_loss == "triplet":
             criterion = nn.TripletMarginLoss(margin=args.margin)
-        if args.rankin_loss == "CLIP":
+        if args.ranking_loss == "CLIP":
             criterion = ClipLoss()
 
         criterion_class = nn.CrossEntropyLoss()
