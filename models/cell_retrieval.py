@@ -78,7 +78,7 @@ class CellRetrievalNetwork(torch.nn.Module):
         description_encodings = F.normalize(description_encodings)
         return description_encodings
 
-    def encode_text_objects(self, descriptions):
+    def encode_text_submap(self, descriptions):
         batch_size = len(descriptions)
         description_encodings = self.language_encoder(descriptions)
         description_encodings = F.normalize(description_encodings)
