@@ -1,0 +1,10 @@
+easydict
+
+numpy
+sklearn
+matplotlib
+cv2
+open3d
+plyfile
+
+torch_geometric

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="20a97de8-9fcb-4489-a2f7-c56f3db5b885" name="FNii_Futian_33">
+        <fileTransfer rootFolder="/home/wanglichao" accessType="SFTP" host="192.168.3.33" port="22" sshConfigId="c8147226-ca53-46dc-85fd-69e396ed76b4" sshConfig="wanglichao@192.168.3.33:22 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>
