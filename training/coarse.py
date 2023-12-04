@@ -24,7 +24,7 @@ from dataloading.kitti360pose.cells import Kitti360CoarseDatasetMulti, Kitti360C
 
 from training.args import parse_arguments
 from training.plots import plot_metrics
-from training.losses import MatchingLoss, PairwiseRankingLoss, HardestRankingLoss
+from training.losses import MatchingLoss, PairwiseRankingLoss, HardestRankingLoss, ClipLoss
 from training.utils import plot_retrievals
 
 
@@ -41,6 +41,8 @@ def train_epoch(model, dataloader, args):
         batch_size = len(batch["texts"])
         optimizer.zero_grad()
         anchor = model.encode_text(batch["texts"])
+        anchor_objects = model.encode_text_objects(batch["text_objects"])
+        anchor_submap = model.encode_text_submap(batch["text_submap"])
         positive = model.encode_objects(batch["objects"], batch["object_points"])
         if args.ranking_loss == "triplet":
             negative_cell_objects = [cell.objects for cell in batch["negative_cells"]]
@@ -275,6 +277,8 @@ if __name__ == "__main__":
             criterion = HardestRankingLoss(margin=args.margin)
         if args.ranking_loss == "triplet":
             criterion = nn.TripletMarginLoss(margin=args.margin)
+        if args.rankin_loss == "CLIP":
+            criterion = ClipLoss()
 
         criterion_class = nn.CrossEntropyLoss()
         criterion_color = nn.CrossEntropyLoss()

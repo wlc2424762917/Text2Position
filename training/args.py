@@ -100,7 +100,7 @@ def parse_arguments():
     args.dataset = args.dataset.upper()
     assert args.dataset in ("S3D", "K360")
 
-    assert args.ranking_loss in ("triplet", "pairwise", "hardest")
+    assert args.ranking_loss in ("triplet", "pairwise", "hardest", "CLIP")
     for feat in args.use_features:
         assert feat in ["class", "color", "position"], "Unexpected feature"
 
