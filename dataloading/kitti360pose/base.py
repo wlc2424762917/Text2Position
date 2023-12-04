@@ -46,6 +46,8 @@ class Kitti360BaseDataset(Dataset):
 
         self.class_to_index = CLASS_TO_INDEX
 
+        self.direction_map = {"on-top": "base", "north": "south", "south": "north", "east": "west", "west": "east"}
+
         self.hint_descriptions = [
             Kitti360BaseDataset.create_hint_description(pose, self.cells_dict[pose.cell_id])
             for pose in self.poses
@@ -57,11 +59,10 @@ class Kitti360BaseDataset(Dataset):
         ]
 
         self.submap_descriptions = [
-            Kitti360BaseDataset.create_objects_description(pose, self.cells_dict[pose.cell_id])
+            Kitti360BaseDataset.create_submap_description(self, pose, self.cells_dict[pose.cell_id])
             for pose in self.poses
         ]
 
-        self.direction_map = {"top": "base", "north": "south", "south": "north", "east": "west", "west": "east"}
     def __getitem__(self, idx):
         raise Exception("Not implemented: abstract class.")
 
