@@ -99,9 +99,10 @@ class CellRetrievalNetwork(torch.nn.Module):
                 batch.append(i_batch)
         batch = torch.tensor(batch, dtype=torch.long, device=self.device)
         # TODO: Norm embeddings or not?
-        embeddings = self.object_encoder(objects, object_points)
+        embeddings, class_embeddings, color_embeddings = self.object_encoder(objects, object_points)
+        # print("embeddings", embeddings.shape, "class_embeddings", class_embeddings.shape, "color_embeddings", color_embeddings.shape)
         embeddings = F.normalize(embeddings, dim=-1)  # OPTION: normalize, this is new
-
+        # print("embeddings", embeddings.shape)
         if self.variation == 0:
             x = self.graph1(embeddings, batch)
             x = gnn.global_max_pool(x, batch)
@@ -112,7 +113,7 @@ class CellRetrievalNetwork(torch.nn.Module):
             x = self.lin(x)
 
         x = F.normalize(x)
-
+        # print("x", x.shape)
         return x
 
     def forward(self):

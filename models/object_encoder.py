@@ -99,6 +99,7 @@ class ObjectEncoder(torch.nn.Module):
             object_features = self.mlp_pointnet(object_features)
 
         embeddings = []
+        class_embedding = None
         if "class" in self.args.use_features:
             if (
                 "class_embed" in self.args and self.args.class_embed
@@ -112,6 +113,7 @@ class ObjectEncoder(torch.nn.Module):
                     F.normalize(object_features, dim=-1)
                 )  # Use features from PointNet
 
+        color_embedding = None
         if "color" in self.args.use_features:
             if "color_embed" in self.args and self.args.color_embed:
                 color_embedding = self.color_embedding(
@@ -127,6 +129,7 @@ class ObjectEncoder(torch.nn.Module):
                     torch.tensor(colors, dtype=torch.float, device=self.get_device())
                 )
                 embeddings.append(F.normalize(color_embedding, dim=-1))
+
         if "position" in self.args.use_features:
             positions = []
             for objects_sample in objects:
@@ -142,7 +145,7 @@ class ObjectEncoder(torch.nn.Module):
         else:
             embeddings = embeddings[0]
 
-        return embeddings
+        return embeddings, F.normalize(class_embedding, dim=-1), F.normalize(color_embedding, dim=-1)
 
     @property
     def device(self):

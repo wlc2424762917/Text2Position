@@ -61,6 +61,11 @@ def train_epoch(model, dataloader, args):
             negative_cell_objects = [cell.objects for cell in batch["negative_cells"]]
             negative = model.encode_objects(negative_cell_objects)
             loss = criterion(anchor, positive, negative)
+
+        elif args.ranking_loss == "obj_submap":
+            loss_obj = criterion(anchor_objects, positive)
+            loss_submap = criterion(anchor_submap, positive)
+
         else:
             loss = criterion(anchor, positive)
 
