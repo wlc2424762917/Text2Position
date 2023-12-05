@@ -34,12 +34,12 @@ def train_epoch(model, dataloader, args):
 
     batches = []
     printed = False
-    time_start_epoch = time.time()
+    # time_start_epoch = time.time()
     for i_batch, batch in enumerate(dataloader):
-        time_end_load_batch = time.time()
-        print(f"load batch {i_batch} in {time_end_load_batch - time_start_epoch:0.2f}")
+        # time_end_load_batch = time.time()
+        # print(f"load batch {i_batch} in {time_end_load_batch - time_start_epoch:0.2f}")
 
-        time_start_forward = time.time()
+        # time_start_forward = time.time()
         if args.max_batches is not None and i_batch >= args.max_batches:
             break
         # print(f"\r{i_batch}/{len(dataloader)}", end="", flush=True)
@@ -54,8 +54,8 @@ def train_epoch(model, dataloader, args):
         # print("anchor", anchor.shape)
         # print("positive", positive.shape)
         # quit()
-        time_end_forward = time.time()
-        print(f"forward {i_batch} in {time_end_forward - time_start_forward:0.2f}")
+        # time_end_forward = time.time()
+        # print(f"forward {i_batch} in {time_end_forward - time_start_forward:0.2f}")
 
         if args.ranking_loss == "triplet":
             negative_cell_objects = [cell.objects for cell in batch["negative_cells"]]
@@ -117,7 +117,7 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
     query_poses_w = np.array([pose.pose_w[0:2] for pose in dataloader.dataset.all_poses])
 
     # Encode the query side
-    t0 = time.time()
+    # t0 = time.time()
     index_offset = 0
     for batch in dataloader:
         #print(f"eval: \r{index_offset}/{len(dataloader.dataset)}", end="", flush=True)
@@ -129,7 +129,7 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
         )
         query_cell_ids[index_offset : index_offset + batch_size] = np.array(batch["cell_ids"])
         index_offset += batch_size
-    print(f"Encoded {len(text_encodings)} query texts in {time.time() - t0:0.2f}.")
+    # print(f"Encoded {len(text_encodings)} query texts in {time.time() - t0:0.2f}.")
 
     # Encode the database side
     index_offset = 0
@@ -193,15 +193,23 @@ if __name__ == "__main__":
     plot_path = f"./plots/{dataset_name}/Coarse_cont{cont}_bs{args.batch_size}_lr{args.lr_idx}_e{args.embed_dim}_ecl{int(args.class_embed)}_eco{int(args.color_embed)}_p{args.pointnet_numpoints}_m{args.margin:0.2f}_s{int(args.shuffle)}_g{args.lr_gamma}_npa{int(args.no_pc_augment)}_nca{int(args.no_cell_augment)}_f-{feats}.png"
     print("Plot:", plot_path, "\n")
 
-    time_start_create_data_loader = time.time()
+    # time_start_create_data_loader = time.time()
     """
     Create data loaders
     """
     if args.dataset == "K360":
         # ['2013_05_28_drive_0003_sync', ]
         if args.no_pc_augment:
-            train_transform = T.FixedPoints(args.pointnet_numpoints)
-            val_transform = T.FixedPoints(args.pointnet_numpoints)
+            # train_transform = T.FixedPoints(args.pointnet_numpoints)
+            # val_transform = T.FixedPoints(args.pointnet_numpoints)
+            train_transform = T.Compose(
+                [
+                    T.FixedPoints(args.pointnet_numpoints),
+                    # T.RandomRotate(120, axis=2),
+                    T.NormalizeScale(),
+                ]
+            )
+            val_transform = T.Compose([T.FixedPoints(args.pointnet_numpoints), T.NormalizeScale()])
         else:
             train_transform = T.Compose(
                 [
@@ -251,8 +259,8 @@ if __name__ == "__main__":
     )
     assert sorted(dataset_train.get_known_classes()) == sorted(dataset_val.get_known_classes())
 
-    time_end_create_data_loader = time.time()
-    print(f"Created data loaders in {time_end_create_data_loader - time_start_create_data_loader:0.2f}.")
+    # time_end_create_data_loader = time.time()
+    # print(f"Created data loaders in {time_end_create_data_loader - time_start_create_data_loader:0.2f}.")
 
     data = dataset_train[0]
     assert len(data["debug_hint_descriptions"]) == args.num_mentioned
@@ -305,13 +313,19 @@ if __name__ == "__main__":
 
         for epoch in range(1, args.epochs + 1):
             # dataset_train.reset_seed() #OPTION: re-setting seed leads to equal data at every epoch
+            time_start_epoch = time.time()
             loss, train_batches = train_epoch(model, dataloader_train, args)
             # train_acc, train_retrievals = eval_epoch(model, train_batches, args)
+            time_end_epoch = time.time()
+            print(f"Epoch {epoch} in {time_end_epoch - time_start_epoch:0.2f}.")
 
+            time_start_eval = time.time()
             train_acc, train_acc_close, train_retrievals = eval_epoch(
                 model, dataloader_train, args
             )  # TODO/CARE: Is this ok? Send in batches again?
             val_acc, val_acc_close, val_retrievals = eval_epoch(model, dataloader_val, args)
+            time_end_eval = time.time()
+            print(f"Evaluation in {time_end_eval - time_start_eval:0.2f}.")
 
             key = lr
             dict_loss[key].append(loss)

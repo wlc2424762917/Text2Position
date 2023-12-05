@@ -3,5 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="Python 3.9 (Text2Pos-CVPR2022)" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="Remote Python 3.8.10 (sftp://wanglichao@192.168.3.32:22/home/wanglichao/miniconda3/envs/t2p/bin/python) (2)" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="Remote Python 3.8.10 (sftp://wanglichao@192.168.3.32:22/home/wanglichao/miniconda3/envs/t2p/bin/python)" project-jdk-type="Python SDK" />
 </project>

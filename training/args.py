@@ -16,6 +16,7 @@ def parse_arguments():
     parser.add_argument("--max_batches", type=int, default=None)
     parser.add_argument("--dataset", type=str, default="K360", help="Currently only K360")
     parser.add_argument("--base_path", type=str, help="Root path of Kitti360Pose")
+    parser.add_argument("--local_rank", type=int, default=-1)
 
     # Model
     parser.add_argument("--embed_dim", type=int, default=300)

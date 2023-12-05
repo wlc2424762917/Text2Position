@@ -6,6 +6,8 @@ import time
 import torch
 from torch_geometric.data import Data, Batch
 import torch_geometric.transforms as T
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 # TODO: for free orientations, possibly flip cell only, create descriptions and hints again
 # OR: numeric vectors in descriptions, flip cell objects and description.direction, then create hints again
@@ -109,6 +111,33 @@ def flip_pose_in_cell(pose: Pose, cell: Cell, text, text_objects, text_submap, d
     else:
         return pose, cell, text, text_objects, text_submap
 
+def normalize_scale_vectorized(xyz_array):
+    # Centering each point cloud
+    centers = np.mean(xyz_array, axis=1, keepdims=True)
+    xyz_centered = xyz_array - centers
+
+    # Normalizing to (-1, 1)
+    max_scales = np.max(np.abs(xyz_centered), axis=(1, 2), keepdims=True)
+    xyz_normalized = xyz_centered / max_scales * 0.999999
+    return xyz_normalized
+
+
+def random_rotate_vectorized(xyz_array, axis=2):
+    batch_size = xyz_array.shape[0]
+    degrees = np.random.uniform(-120, 120, size=batch_size)
+    radians = np.radians(degrees)
+
+    # Creating rotation matrices for the entire batch
+    sin_vals, cos_vals = np.sin(radians), np.cos(radians)
+    if axis == 2:  # z-axis rotation
+        rotation_matrices = np.array([
+            [cos_vals, -sin_vals, np.zeros(batch_size)],
+            [sin_vals, cos_vals, np.zeros(batch_size)],
+            [np.zeros(batch_size), np.zeros(batch_size), np.ones(batch_size)]
+        ]).transpose(1, 2, 0)
+
+    # Apply rotation to each point cloud
+    return np.einsum('bij,bjk->bik', xyz_array, rotation_matrices)
 
 def batch_object_points(objects: List[Object3d], transform):
     """Generates a PyG-Batch for the objects of a single cell.
@@ -121,19 +150,31 @@ def batch_object_points(objects: List[Object3d], transform):
     """
 
     # CARE: Transforms not working with batches?! Doing it object-by-object here!
-    time_start_batch_object_points = time.time()
     data_list = [
         Data(
             x=torch.tensor(obj.rgb, dtype=torch.float), pos=torch.tensor(obj.xyz, dtype=torch.float)
         )
         for obj in objects
     ]
-    time_end_batch_object_points = time.time()
-    print("time_batch_object_points: ", time_end_batch_object_points - time_start_batch_object_points)
 
-    for i in range(len(data_list)):
-        data_list[i] = transform(data_list[i])
+    # time_start_transform = time.time()
 
+    # for i in range(len(data_list)):
+    #     data_list[i] = transform(data_list[i])
+    def apply_transform(data):
+        return transform(data)
+
+    # Parallel transformation using ThreadPoolExecutor
+    with ThreadPoolExecutor() as executor:
+        # Submit all transformation tasks and store the future objects
+        futures = [executor.submit(apply_transform, data) for data in data_list]
+
+        # Wait for the futures to complete and update the data_list
+        for i, future in enumerate(as_completed(futures)):
+            data_list[i] = future.result()
+
+    # time_end_transform = time.time()
+    # print("time_transform: ", time_end_transform - time_start_transform)
 
     assert len(data_list) >= 1
     batch = Batch.from_data_list(data_list)

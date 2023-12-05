@@ -17,28 +17,35 @@
           </mappings>
         </serverdata>
       </paths>
-      <paths name="wanglichao@192.168.3.32:22 password">
+      <paths name="Yanglab7">
         <serverdata>
           <mappings>
-            <mapping deploy="/tmp/pycharm_project_64" local="$PROJECT_DIR$" />
+            <mapping local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>
-      <paths name="wanglichao@192.168.3.32:22 password (2)">
+      <paths name="wanglichao@192.168.3.31:22 password">
         <serverdata>
           <mappings>
-            <mapping deploy="/tmp/pycharm_project_226" local="$PROJECT_DIR$" />
+            <mapping local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="wanglichao@192.168.3.31:22 password (2)">
+        <serverdata>
+          <mappings>
+            <mapping local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="wanglichao@192.168.3.32:22 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_902" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>
       <paths name="wanglichao@192.168.3.33:22 password">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/home/wanglichao/Text2Pos-CVPR2022" local="$PROJECT_DIR$" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="wanglichao@192.168.3.33:22 password (2)">
         <serverdata>
           <mappings>
             <mapping deploy="/home/wanglichao/Text2Pos-CVPR2022" local="$PROJECT_DIR$" />

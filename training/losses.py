@@ -296,7 +296,7 @@ class ClipLoss(nn.Module):
             labels = self.labels[device]
         return labels
 
-    def get_logits(self, image_features, text_features, logit_scale=np.log(10)):
+    def get_logits(self, image_features, text_features, logit_scale=1/0.07):
         if self.world_size > 1:
             all_image_features, all_text_features = gather_features(
                 image_features, text_features,
