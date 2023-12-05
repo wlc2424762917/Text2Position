@@ -23,6 +23,7 @@ from datapreparation.kitti360pose.drawing import (
     plot_cell,
     plot_pose_in_best_cell,
 )
+import time
 
 
 class Kitti360BaseDataset(Dataset):
@@ -69,12 +70,15 @@ class Kitti360BaseDataset(Dataset):
     def create_hint_description(pose: Pose, cell: Cell):
         hints = []
         # cell_objects_dict = {obj.id: obj for obj in cell.objects}
+        # time_start_create_hint_description = time.time()
         for descr in pose.descriptions:
             # obj = cell_objects_dict[descr.object_id]
             # hints.append(f'The pose is {descr.direction} of a {obj.get_color_text()} {obj.label}.')
             hints.append(
                 f"The pose is {descr.direction} of a {descr.object_color_text} {descr.object_label}."
             )
+        # time_end_create_hint_description = time.time()
+        # print("time_create_hint_description: ", time_end_create_hint_description - time_start_create_hint_description)
         return hints
 
     def create_objects_description(pose: Pose, cell: Cell):

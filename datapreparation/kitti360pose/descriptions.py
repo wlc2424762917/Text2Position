@@ -24,6 +24,10 @@ from copy import deepcopy
 
 
 def get_mask(points, cell_bbox):
+    """Get mask of points inside a cell
+       return a boolean mask, each element (T/F)
+       indicates whether the point is inside the cell
+    """
     mask = np.bitwise_and.reduce(
         (
             points[:, 0] >= cell_bbox[0],
@@ -97,7 +101,7 @@ def create_cell(
     Args:
         cell_idx (int): Global running index
         scene_name (str): Scene name
-        bbox_w (np.ndarray): BBox as [xmin, ymin, zmin, xmax, ymax, zmax]
+        bbox_w (np.ndarray): BBox as [xmin, ymin, zmin, xmax, ymax, zmax], world coordinates
         scene_objects (List[Object3d]): All objects of the scene
         num_mentioned (int, optional): How many objects to mention as hints, returns None if cell has less objects. Defaults to 6.
         inside_fraction (float, optional): How many points of an instance object have to be inside the BBox. Defaults to 1/3.

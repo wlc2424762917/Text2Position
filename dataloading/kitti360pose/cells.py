@@ -6,6 +6,7 @@ import pickle
 import numpy as np
 import cv2
 from copy import deepcopy
+import time
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -63,6 +64,8 @@ class Kitti360CoarseDataset(Kitti360BaseDataset):
         self.cell_centers = np.array([cell.get_center()[0:2] for cell in self.cells])
 
     def __getitem__(self, idx):
+
+        time_start_get_cell = time.time()
         pose = self.poses[idx]
 
         # TODO/NOTE: If it doesn't work, check if there is a problem with flipping later on
@@ -74,11 +77,17 @@ class Kitti360CoarseDataset(Kitti360BaseDataset):
             assert np.linalg.norm(cell.get_center()[0:2] - pose.pose_w[0:2]) < cell_size
         else:
             cell = self.cells_dict[pose.cell_id]
+        time_end_get_cell = time.time()
+        print(f"time get cell = {time_end_get_cell-time_start_get_cell:0.2f}")
 
+        time_start_create_hints = time.time()
         hints = self.hint_descriptions[idx]
         objects_descriptions = self.objects_descriptions[idx]
         submap_descriptions = self.submap_descriptions[idx]
+        time_end_create_hints = time.time()
+        print(f"time create hints = {time_end_create_hints-time_start_create_hints:0.2f}")
 
+        time_start_shuffle_hints = time.time()
         if self.shuffle_hints:
             hints = np.random.choice(hints, size=len(hints), replace=False)
             objects_descriptions = np.random.choice(
@@ -87,22 +96,33 @@ class Kitti360CoarseDataset(Kitti360BaseDataset):
             submap_descriptions = np.random.choice(
                 submap_descriptions, size=len(submap_descriptions), replace=False
             )
+        time_end_shuffle_hints = time.time()
+        print(f"time shuffle hints = {time_end_shuffle_hints - time_start_shuffle_hints:0.2f}")
 
         text = " ".join(hints)
         text_objects = " ".join(objects_descriptions)
         text_submap = " ".join(submap_descriptions)
 
+        time_start_flip_hints = time.time()
         # NOTE: hints are currently not flipped! (Only the text.)
         if self.flip_poses:
             if np.random.choice((True, False)):  # Horizontal
                 pose, cell, text, text_objects, text_submap = flip_pose_in_cell(pose, cell, text, text_objects, text_submap, 1)
             if np.random.choice((True, False)):  # Vertical
                 pose, cell, text, text_objects, text_submap = flip_pose_in_cell(pose, cell, text, text_objects, text_submap, direction=-1)
+        time_end_flip_hints = time.time()
+        print(f"time flip hints = {time_end_flip_hints - time_start_flip_hints:0.2f}")
 
+        time_start_batch_obj = time.time()
         object_points = batch_object_points(cell.objects, self.transform)
+        time_end_batch_obj = time.time()
+        print(f"time batch obj = {time_end_batch_obj - time_start_batch_obj:0.2f}")
 
+        time_start_indice_obj = time.time()
         object_class_indices = [CLASS_TO_INDEX[obj.label] for obj in cell.objects]
         object_color_indices = [COLOR_NAMES.index(obj.get_color_text()) for obj in cell.objects]
+        time_end_indice_obj = time.time()
+        print(f"time indice obj = {time_end_indice_obj - time_start_indice_obj:0.2f}")
 
         return {
             "poses": pose,

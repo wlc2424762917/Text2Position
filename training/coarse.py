@@ -34,10 +34,15 @@ def train_epoch(model, dataloader, args):
 
     batches = []
     printed = False
+    time_start_epoch = time.time()
     for i_batch, batch in enumerate(dataloader):
+        time_end_load_batch = time.time()
+        print(f"load batch {i_batch} in {time_end_load_batch - time_start_epoch:0.2f}")
+
+        time_start_forward = time.time()
         if args.max_batches is not None and i_batch >= args.max_batches:
             break
-        print(f"\r{i_batch}/{len(dataloader)}", end="", flush=True)
+        # print(f"\r{i_batch}/{len(dataloader)}", end="", flush=True)
         batch_size = len(batch["texts"])
         optimizer.zero_grad()
         anchor = model.encode_text(batch["texts"])
@@ -49,6 +54,8 @@ def train_epoch(model, dataloader, args):
         # print("anchor", anchor.shape)
         # print("positive", positive.shape)
         # quit()
+        time_end_forward = time.time()
+        print(f"forward {i_batch} in {time_end_forward - time_start_forward:0.2f}")
 
         if args.ranking_loss == "triplet":
             negative_cell_objects = [cell.objects for cell in batch["negative_cells"]]
@@ -65,10 +72,9 @@ def train_epoch(model, dataloader, args):
         epoch_losses.append(loss.item())
         batches.append(batch)
 
+        if i_batch % 80 == 0:
+            print(f"\r{i_batch}/{len(dataloader)} loss {loss.item():0.2f}", end="", flush=True)
     return np.mean(epoch_losses), batches
-
-
-printed = False
 
 
 @torch.no_grad()
@@ -187,6 +193,7 @@ if __name__ == "__main__":
     plot_path = f"./plots/{dataset_name}/Coarse_cont{cont}_bs{args.batch_size}_lr{args.lr_idx}_e{args.embed_dim}_ecl{int(args.class_embed)}_eco{int(args.color_embed)}_p{args.pointnet_numpoints}_m{args.margin:0.2f}_s{int(args.shuffle)}_g{args.lr_gamma}_npa{int(args.no_pc_augment)}_nca{int(args.no_cell_augment)}_f-{feats}.png"
     print("Plot:", plot_path, "\n")
 
+    time_start_create_data_loader = time.time()
     """
     Create data loaders
     """
@@ -226,6 +233,7 @@ if __name__ == "__main__":
             batch_size=args.batch_size,
             collate_fn=Kitti360CoarseDataset.collate_fn,
             shuffle=args.shuffle,
+            pin_memory=True
         )
 
         dataset_val = Kitti360CoarseDatasetMulti(args.base_path, SCENE_NAMES_VAL, val_transform)
@@ -234,6 +242,7 @@ if __name__ == "__main__":
             batch_size=args.batch_size,
             collate_fn=Kitti360CoarseDataset.collate_fn,
             shuffle=False,
+            pin_memory=True
         )
 
     print(
@@ -242,10 +251,13 @@ if __name__ == "__main__":
     )
     assert sorted(dataset_train.get_known_classes()) == sorted(dataset_val.get_known_classes())
 
+    time_end_create_data_loader = time.time()
+    print(f"Created data loaders in {time_end_create_data_loader - time_start_create_data_loader:0.2f}.")
+
     data = dataset_train[0]
     assert len(data["debug_hint_descriptions"]) == args.num_mentioned
-    batch = next(iter(dataloader_train))
 
+    batch = next(iter(dataloader_train))
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
     print("device:", device, torch.cuda.get_device_name(0))
     torch.autograd.set_detect_anomaly(True)
@@ -293,9 +305,9 @@ if __name__ == "__main__":
 
         for epoch in range(1, args.epochs + 1):
             # dataset_train.reset_seed() #OPTION: re-setting seed leads to equal data at every epoch
-
             loss, train_batches = train_epoch(model, dataloader_train, args)
             # train_acc, train_retrievals = eval_epoch(model, train_batches, args)
+
             train_acc, train_acc_close, train_retrievals = eval_epoch(
                 model, dataloader_train, args
             )  # TODO/CARE: Is this ok? Send in batches again?

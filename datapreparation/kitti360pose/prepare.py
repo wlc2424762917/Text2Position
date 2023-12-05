@@ -156,6 +156,7 @@ def get_close_locations(
     locations: List[np.ndarray], scene_objects: List[Object3d], cell_size, location_objects=None
 ):
     """Retains all locations that are at most cell_size / 2 distant from an instance-object.
+    至少有一个object在所选的location附近
 
     Args:
         locations (List[np.ndarray]): Pose locations
@@ -174,7 +175,6 @@ def get_close_locations(
                 close_locations.append(location)
                 close_location_objects.append(location_objects[i_location])
                 break
-
     assert (
         len(close_locations) > len(locations) * 2 / 5
     ), f"Too few locations retained ({len(close_locations)} of {len(locations)}), are all objects loaded?"
@@ -189,13 +189,14 @@ def get_close_locations(
 def create_locations(path_input, folder_name, location_distance, return_location_objects=False):
     """Sample locations along the original trajectories with at least location_distance between any two locations."""
     path = osp.join(path_input, "data_poses", folder_name, "poses.txt")
-    poses = np.loadtxt(path)
+    poses = np.loadtxt(path)  # poses are in world coordinates
     poses = poses[:, 1:].reshape((-1, 3, 4))  # Convert to 3x4 matrices
     poses = poses[:, :, -1]  # Take last column
 
     sampled_poses = [
         poses[0],
     ]
+
     for pose in poses:
         dists = np.linalg.norm(pose - sampled_poses, axis=1)
         if np.min(dists) >= location_distance:
@@ -205,7 +206,7 @@ def create_locations(path_input, folder_name, location_distance, return_location
         pose_objects = []
         for pose in sampled_poses:
             pose_objects.append(
-                Object3d(-1, -1, np.random.rand(50, 3) * 3 + pose, np.ones((50, 3)), "_pose")
+                Object3d(-1, -1, np.random.rand(50, 3) * 3 + pose, np.ones((50, 3)), "_pose")  # Random 50 points
             )
         print(f"{folder_name} sampled {len(sampled_poses)} locations")
         return sampled_poses, pose_objects
@@ -218,7 +219,7 @@ def create_cells(objects, locations, scene_name, cell_size, args) -> List[Cell]:
     print("Creating cells...")
     cells = []
     none_indices = []
-    locations = np.array(locations)
+    locations = np.array(locations)  # poses
 
     assert len(scene_name.split("_")) == 6
     scene_name_short = scene_name.split("_")[-2]
@@ -238,7 +239,6 @@ def create_cells(objects, locations, scene_name, cell_size, args) -> List[Cell]:
         shifts = np.tile(shifts.T, len(locations)).T  # "trick" to tile along axis 0
         locations = np.repeat(locations, 5, axis=0)
         locations[:, 0:2] += shifts
-
         cell_locations = np.ones_like(locations) * np.inf
     elif args.grid_cells:
         # Define the grid
@@ -271,7 +271,7 @@ def create_cells(objects, locations, scene_name, cell_size, args) -> List[Cell]:
             if np.min(dists) < args.cell_dist:
                 continue
 
-        # print(f'\r \t locations {i_location} / {len(locations)}', end='')
+        print(f'\r \t locations {i_location} / {len(locations)}', end='')
         bbox = np.hstack(
             (location - cell_size / 2, location + cell_size / 2)
         )  # [x0, y0, z0, x1, y1, z1]
@@ -445,6 +445,7 @@ if __name__ == "__main__":
         location_distance=args.cell_dist,
         return_location_objects=True,
     )
+
     pose_locations, pose_location_objects = create_locations(
         args.path_in,
         args.scene_name,
@@ -458,7 +459,7 @@ if __name__ == "__main__":
 
     t_start = time.time()
 
-    # Load or gather objects
+    # Load or gather objects of the scene
     if not osp.isfile(path_objects):  # Build if not cached
         objects = gather_objects(args.path_in, args.scene_name)
         pickle.dump(objects, open(path_objects, "wb"))
@@ -469,9 +470,12 @@ if __name__ == "__main__":
 
     t_object_loaded = time.time()
 
+    # Filter out locations that= are too far from objects
     cell_locations, cell_location_objects = get_close_locations(
         cell_locations, objects, args.cell_size, cell_location_objects
     )
+
+    # Filter out locations that are too far from objects
     pose_locations, pose_location_objects = get_close_locations(
         pose_locations, objects, args.cell_size, pose_location_objects
     )
