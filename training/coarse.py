@@ -68,7 +68,7 @@ def train_epoch(model, dataloader, args):
             loss_submap = criterion(anchor_submap, positive)
 
         else:
-            loss = criterion(anchor, positive)
+            loss = criterion(anchor_submap, positive)
 
         loss = loss
 
