@@ -84,13 +84,13 @@ def flip_pose_in_cell(pose: Pose, cell: Cell, text, text_objects, text_submap, d
         )
 
         text_objects = (
-            text.replace("north", "north-flipped")
+            text_objects.replace("north", "north-flipped")
             .replace("south", "north")
             .replace("north-flipped", "south")
         )
 
         text_submap = (
-            text.replace("north", "north-flipped")
+            text_submap.replace("north", "north-flipped")
             .replace("south", "north")
             .replace("north-flipped", "south")
         )
