@@ -213,138 +213,157 @@ class HardestRankingLoss(torch.nn.Module):
         return cost
 
 
-def gather_features(
-        image_features,
-        text_features,
-        local_loss=False,
-        gather_with_grad=False,
-        rank=0,
-        world_size=1,
-        use_horovod=False
-):
-    assert has_distributed, 'torch.distributed did not import correctly, please use a PyTorch version with support.'
-    if use_horovod:
-        assert hvd is not None, 'Please install horovod'
-        if gather_with_grad:
-            all_image_features = hvd.allgather(image_features)
-            all_text_features = hvd.allgather(text_features)
-        else:
-            with torch.no_grad():
-                all_image_features = hvd.allgather(image_features)
-                all_text_features = hvd.allgather(text_features)
-            if not local_loss:
-                # ensure grads for local rank when all_* features don't have a gradient
-                gathered_image_features = list(all_image_features.chunk(world_size, dim=0))
-                gathered_text_features = list(all_text_features.chunk(world_size, dim=0))
-                gathered_image_features[rank] = image_features
-                gathered_text_features[rank] = text_features
-                all_image_features = torch.cat(gathered_image_features, dim=0)
-                all_text_features = torch.cat(gathered_text_features, dim=0)
-    else:
-        # We gather tensors from all gpus
-        if gather_with_grad:
-            all_image_features = torch.cat(torch.distributed.nn.all_gather(image_features), dim=0)
-            all_text_features = torch.cat(torch.distributed.nn.all_gather(text_features), dim=0)
-        else:
-            gathered_image_features = [torch.zeros_like(image_features) for _ in range(world_size)]
-            gathered_text_features = [torch.zeros_like(text_features) for _ in range(world_size)]
-            dist.all_gather(gathered_image_features, image_features)
-            dist.all_gather(gathered_text_features, text_features)
-            if not local_loss:
-                # ensure grads for local rank when all_* features don't have a gradient
-                gathered_image_features[rank] = image_features
-                gathered_text_features[rank] = text_features
-            all_image_features = torch.cat(gathered_image_features, dim=0)
-            all_text_features = torch.cat(gathered_text_features, dim=0)
+# def gather_features(
+#         image_features,
+#         text_features,
+#         local_loss=False,
+#         gather_with_grad=False,
+#         rank=0,
+#         world_size=1,
+#         use_horovod=False
+# ):
+#     assert has_distributed, 'torch.distributed did not import correctly, please use a PyTorch version with support.'
+#     if use_horovod:
+#         assert hvd is not None, 'Please install horovod'
+#         if gather_with_grad:
+#             all_image_features = hvd.allgather(image_features)
+#             all_text_features = hvd.allgather(text_features)
+#         else:
+#             with torch.no_grad():
+#                 all_image_features = hvd.allgather(image_features)
+#                 all_text_features = hvd.allgather(text_features)
+#             if not local_loss:
+#                 # ensure grads for local rank when all_* features don't have a gradient
+#                 gathered_image_features = list(all_image_features.chunk(world_size, dim=0))
+#                 gathered_text_features = list(all_text_features.chunk(world_size, dim=0))
+#                 gathered_image_features[rank] = image_features
+#                 gathered_text_features[rank] = text_features
+#                 all_image_features = torch.cat(gathered_image_features, dim=0)
+#                 all_text_features = torch.cat(gathered_text_features, dim=0)
+#     else:
+#         # We gather tensors from all gpus
+#         if gather_with_grad:
+#             all_image_features = torch.cat(torch.distributed.nn.all_gather(image_features), dim=0)
+#             all_text_features = torch.cat(torch.distributed.nn.all_gather(text_features), dim=0)
+#         else:
+#             gathered_image_features = [torch.zeros_like(image_features) for _ in range(world_size)]
+#             gathered_text_features = [torch.zeros_like(text_features) for _ in range(world_size)]
+#             dist.all_gather(gathered_image_features, image_features)
+#             dist.all_gather(gathered_text_features, text_features)
+#             if not local_loss:
+#                 # ensure grads for local rank when all_* features don't have a gradient
+#                 gathered_image_features[rank] = image_features
+#                 gathered_text_features[rank] = text_features
+#             all_image_features = torch.cat(gathered_image_features, dim=0)
+#             all_text_features = torch.cat(gathered_text_features, dim=0)
+#
+#     return all_image_features, all_text_features
 
-    return all_image_features, all_text_features
+
+# class ClipLoss(nn.Module):
+#
+#     def __init__(
+#             self,
+#             local_loss=False,
+#             gather_with_grad=False,
+#             cache_labels=False,
+#             rank=0,
+#             world_size=1,
+#             use_horovod=False,
+#     ):
+#         super().__init__()
+#         self.local_loss = local_loss
+#         self.gather_with_grad = gather_with_grad
+#         self.cache_labels = cache_labels
+#         self.rank = rank
+#         self.world_size = world_size
+#         self.use_horovod = use_horovod
+#
+#         # cache state
+#         self.prev_num_logits = 0
+#         self.labels = {}
+#
+#     def get_ground_truth(self, device, num_logits) -> torch.Tensor:
+#         # calculated ground-truth and cache if enabled
+#         if self.prev_num_logits != num_logits or device not in self.labels:
+#             labels = torch.arange(num_logits, device=device, dtype=torch.long)
+#             if self.world_size > 1 and self.local_loss:
+#                 labels = labels + num_logits * self.rank
+#             if self.cache_labels:
+#                 self.labels[device] = labels
+#                 self.prev_num_logits = num_logits
+#         else:
+#             labels = self.labels[device]
+#         return labels
+#
+#     def get_logits(self, image_features, text_features, logit_scale=1/0.07):
+#         if self.world_size > 1:
+#             all_image_features, all_text_features = gather_features(
+#                 image_features, text_features,
+#                 self.local_loss, self.gather_with_grad, self.rank, self.world_size, self.use_horovod)
+#
+#             if self.local_loss:
+#                 logits_per_image = logit_scale * image_features @ all_text_features.T
+#                 logits_per_text = logit_scale * text_features @ all_image_features.T
+#             else:
+#                 logits_per_image = logit_scale * all_image_features @ all_text_features.T
+#                 logits_per_text = logits_per_image.T
+#         else:
+#             logits_per_image = logit_scale * image_features @ text_features.T
+#             logits_per_text = logit_scale * text_features @ image_features.T
+#
+#         return logits_per_image, logits_per_text
+#
+#     def forward(self, image_features, text_features, logit_scale=1/0.07, output_dict=False):
+#         device = image_features.device
+#         logits_per_image, logits_per_text = self.get_logits(image_features, text_features, logit_scale)
+#
+#         labels = self.get_ground_truth(device, logits_per_image.shape[0])
+#
+#         total_loss = (
+#                              F.cross_entropy(logits_per_image, labels) +
+#                              F.cross_entropy(logits_per_text, labels)
+#                      ) / 2
+#         # print(f"contrastive_loss: {total_loss}")
+#         return {"contrastive_loss": total_loss} if output_dict else total_loss
+
+
+# def test_clip_loss_integration(world_size=1, batch_size=4, feature_size=256):
+#     # Initialize a fake distributed environment
+#     if not dist.is_initialized():
+#         dist.init_process_group(backend='gloo', init_method='file:///tmp/somefile', world_size=world_size, rank=0)
+#
+#     # Generate dummy image and text features along with a logit scale
+#     image_features = torch.randn(batch_size, feature_size)
+#     text_features = torch.randn(batch_size, feature_size)
+#     logit_scale = torch.tensor(1.0)
+#
+#     # Initialize ClipLoss
+#     clip_loss = ClipLoss(world_size=world_size)
+#
+#     # Compute loss
+#     loss = clip_loss(image_features, text_features, logit_scale)
+#
+#     print(f"Computed loss: {loss.item()}")
 
 
 class ClipLoss(nn.Module):
+    def __init__(self, temperature_init=1/0.07):
+        super(ClipLoss, self).__init__()
+        self.temperature = nn.Parameter(torch.tensor([temperature_init]))
 
-    def __init__(
-            self,
-            local_loss=False,
-            gather_with_grad=False,
-            cache_labels=False,
-            rank=0,
-            world_size=1,
-            use_horovod=False,
-    ):
-        super().__init__()
-        self.local_loss = local_loss
-        self.gather_with_grad = gather_with_grad
-        self.cache_labels = cache_labels
-        self.rank = rank
-        self.world_size = world_size
-        self.use_horovod = use_horovod
+    def forward(self, image_features, text_features):
+        # 计算特征的余弦相似度
+        logits_per_image = torch.matmul(image_features, text_features.t()) * self.temperature.to(image_features.device)
+        logits_per_text = logits_per_image.t()
 
-        # cache state
-        self.prev_num_logits = 0
-        self.labels = {}
+        # 计算损失
+        loss = (self.cross_entropy_loss(logits_per_image) + self.cross_entropy_loss(logits_per_text)) / 2
+        return loss
 
-    def get_ground_truth(self, device, num_logits) -> torch.Tensor:
-        # calculated ground-truth and cache if enabled
-        if self.prev_num_logits != num_logits or device not in self.labels:
-            labels = torch.arange(num_logits, device=device, dtype=torch.long)
-            if self.world_size > 1 and self.local_loss:
-                labels = labels + num_logits * self.rank
-            if self.cache_labels:
-                self.labels[device] = labels
-                self.prev_num_logits = num_logits
-        else:
-            labels = self.labels[device]
-        return labels
-
-    def get_logits(self, image_features, text_features, logit_scale=1/0.07):
-        if self.world_size > 1:
-            all_image_features, all_text_features = gather_features(
-                image_features, text_features,
-                self.local_loss, self.gather_with_grad, self.rank, self.world_size, self.use_horovod)
-
-            if self.local_loss:
-                logits_per_image = logit_scale * image_features @ all_text_features.T
-                logits_per_text = logit_scale * text_features @ all_image_features.T
-            else:
-                logits_per_image = logit_scale * all_image_features @ all_text_features.T
-                logits_per_text = logits_per_image.T
-        else:
-            logits_per_image = logit_scale * image_features @ text_features.T
-            logits_per_text = logit_scale * text_features @ image_features.T
-
-        return logits_per_image, logits_per_text
-
-    def forward(self, image_features, text_features, logit_scale=np.log(10), output_dict=False):
-        device = image_features.device
-        logits_per_image, logits_per_text = self.get_logits(image_features, text_features, logit_scale)
-
-        labels = self.get_ground_truth(device, logits_per_image.shape[0])
-
-        total_loss = (
-                             F.cross_entropy(logits_per_image, labels) +
-                             F.cross_entropy(logits_per_text, labels)
-                     ) / 2
-        # print(f"contrastive_loss: {total_loss}")
-        return {"contrastive_loss": total_loss} if output_dict else total_loss
-
-
-def test_clip_loss_integration(world_size=1, batch_size=4, feature_size=256):
-    # Initialize a fake distributed environment
-    if not dist.is_initialized():
-        dist.init_process_group(backend='gloo', init_method='file:///tmp/somefile', world_size=world_size, rank=0)
-
-    # Generate dummy image and text features along with a logit scale
-    image_features = torch.randn(batch_size, feature_size)
-    text_features = torch.randn(batch_size, feature_size)
-    logit_scale = torch.tensor(1.0)
-
-    # Initialize ClipLoss
-    clip_loss = ClipLoss(world_size=world_size)
-
-    # Compute loss
-    loss = clip_loss(image_features, text_features, logit_scale)
-
-    print(f"Computed loss: {loss.item()}")
+    def cross_entropy_loss(self, logits):
+        labels = torch.arange(len(logits), device=logits.device)
+        return nn.functional.cross_entropy(logits, labels)
 
 
 if __name__ == "__main__":
@@ -363,4 +382,5 @@ if __name__ == "__main__":
     # print(err)
     # err = calc_pose_error(objects, matches0, poses, offsets=offsets)
     # print(err)
-    test_clip_loss_integration()
+    # test_clip_loss_integration()
+    pass

@@ -6,6 +6,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 import numpy as np
+import clip
 
 # CARE: This has a trailing ReLU!!
 def get_mlp(channels: List[int], add_batchnorm: bool = True) -> nn.Sequential:
@@ -94,3 +95,37 @@ class LanguageEncoder(torch.nn.Module):
     @property
     def device(self):
         return next(self.lstm.parameters()).device
+
+# class Clip_LanguageEncoder():
+#     def __init__(self, clip_version, device):
+#         self.device = device
+#         self.clip_version = clip_version
+#         self.model, self.preprocess = clip.load(clip_version, device=device)
+#
+#     def __call__(self, descriptions):
+#         with torch.no_grad():
+#             text_inputs = torch.cat([clip.tokenize(desc) for desc in descriptions]).to(self.device)  # [B, 77]
+#             print("text_inputs", text_inputs.device)
+#             text_features = self.model.encode_text(text_inputs)  # [B, 512]
+#             text_features = F.normalize(text_features, dim=-1)
+#             return text_features
+
+class Clip_LanguageEncoder(nn.Module):
+    def __init__(self, clip_version):
+        super(Clip_LanguageEncoder, self).__init__()
+        self.model, _ = clip.load(clip_version)
+        self.model.eval()
+
+    def forward(self, descriptions):
+        with torch.no_grad():
+            text_inputs = torch.cat([clip.tokenize(desc) for desc in descriptions]).to(self.device)
+            # text_inputs.to(self.device)# [B, 77]
+            text_features = self.model.encode_text(text_inputs)  # [B, 512]
+            text_features = F.normalize(text_features, dim=-1)
+            # convert to float32, but dont change device
+            text_features = text_features.type(torch.FloatTensor).to(self.device)
+            return text_features
+
+    @property
+    def device(self):
+        return next(self.model.parameters()).device

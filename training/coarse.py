@@ -46,10 +46,10 @@ def train_epoch(model, dataloader, args):
         # print(f"\r{i_batch}/{len(dataloader)}", end="", flush=True)
         batch_size = len(batch["texts"])
         optimizer.zero_grad()
-        anchor = model.encode_text(batch["texts"])
-        anchor_objects = model.encode_text_objects(batch["texts_objects"])
-        anchor_submap = model.encode_text_submap(batch["texts_submap"])
-        positive = model.encode_objects(batch["objects"], batch["object_points"])
+        anchor = model.module.encode_text(batch["texts"])
+        anchor_objects, clip_feature_objects = model.module.encode_text_objects(batch["texts_objects"])
+        anchor_submap, clip_feature_submap = model.module.encode_text_submap(batch["texts_submap"])
+        positive = model.module.encode_objects(batch["objects"], batch["object_points"])
         # print("anchor_object: ", anchor_objects.shape)
         # print("anchor_submap: ", anchor_submap.shape)
         # print("anchor", anchor.shape)
@@ -60,7 +60,7 @@ def train_epoch(model, dataloader, args):
 
         if args.ranking_loss == "triplet":
             negative_cell_objects = [cell.objects for cell in batch["negative_cells"]]
-            negative = model.encode_objects(negative_cell_objects)
+            negative = model.module.encode_objects(negative_cell_objects)
             loss = criterion(anchor, positive, negative)
 
         elif args.ranking_loss == "obj_submap":

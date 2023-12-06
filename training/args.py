@@ -63,6 +63,9 @@ def parse_arguments():
     parser.add_argument("--class_embed", action="store_true")
     parser.add_argument("--color_embed", action="store_true")
 
+    # language encoder
+    parser.add_argument("--language_encoder", type=str, default="LSTM")
+
     # Arguments for translation regressor training.
     parser.add_argument(
         "--regressor_dim",

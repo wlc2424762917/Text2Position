@@ -13,8 +13,10 @@ import os
 import pickle
 from easydict import EasyDict
 
-from models.modules import get_mlp, LanguageEncoder
+from models.modules import get_mlp, LanguageEncoder, Clip_LanguageEncoder
 from models.object_encoder import ObjectEncoder
+import clip
+
 
 #from dataloading.semantic3d.semantic3d import Semantic3dCellRetrievalDataset
 #from dataloading.semantic3d.semantic3d_poses import Semantic3dPosesDataset
@@ -58,7 +60,14 @@ class CellRetrievalNetwork(torch.nn.Module):
         """
         Textual path
         """
-        self.language_encoder = LanguageEncoder(known_words, embed_dim, bi_dir=True)
+        if args.language_encoder == "CLIP_text":
+            self.language_encoder = Clip_LanguageEncoder(clip_version="ViT-B/32")
+            self.language_linear = nn.Linear(512, embed_dim)
+            self.language_linear_object = nn.Linear(512, embed_dim)
+            self.language_linear_submap = nn.Linear(512, embed_dim)
+
+        else:
+            self.language_encoder = LanguageEncoder(known_words, embed_dim, bi_dir=True)
 
         print(
             f"CellRetrievalNetwork, class embed {args.class_embed}, color embed {args.color_embed}, variation: {self.variation}, dim: {embed_dim}, features: {self.use_features}"
@@ -68,21 +77,42 @@ class CellRetrievalNetwork(torch.nn.Module):
 
     def encode_text(self, descriptions):
         batch_size = len(descriptions)
-        description_encodings = self.language_encoder(descriptions)  # [B, DIM]
-        description_encodings = F.normalize(description_encodings)
+        # print(batch_size)
+        # print(descriptions[0])
+        # print(descriptions)
+        # quit()
+        if self.args.language_encoder == "CLIP_text":
+            description_clip_features = self.language_encoder(descriptions)
+            description_encodings = self.language_linear(description_clip_features)
+        else:
+            description_encodings = self.language_encoder(descriptions)  # [B, DIM]
+            description_encodings = F.normalize(description_encodings)
         return description_encodings
 
     def encode_text_objects(self, descriptions):
         batch_size = len(descriptions)
-        description_encodings = self.language_encoder(descriptions)
-        description_encodings = F.normalize(description_encodings)
-        return description_encodings
+        # print(descriptions[0])
+        # print(descriptions)
+        # quit()
+        if self.args.language_encoder == "CLIP_text":
+            description_clip_features = self.language_encoder(descriptions)
+            description_encodings = self.language_linear_object(description_clip_features)
+            return description_encodings, description_clip_features
+        else:
+            description_encodings = self.language_encoder(descriptions)  # [B, DIM]
+            description_encodings = F.normalize(description_encodings)
+        return description_encodings, None
 
     def encode_text_submap(self, descriptions):
         batch_size = len(descriptions)
-        description_encodings = self.language_encoder(descriptions)
-        description_encodings = F.normalize(description_encodings)
-        return description_encodings
+        if self.args.language_encoder == "CLIP_text":
+            description_clip_features = self.language_encoder(descriptions)
+            description_encodings = self.language_linear_submap(description_clip_features)
+            return description_encodings, description_clip_features
+        else:
+            description_encodings = self.language_encoder(descriptions)  # [B, DIM]
+            description_encodings = F.normalize(description_encodings)
+        return description_encodings, None
 
     def encode_objects(self, objects, object_points):
         """

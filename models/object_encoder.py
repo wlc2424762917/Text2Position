@@ -57,7 +57,12 @@ class ObjectEncoder(torch.nn.Module):
             self.mlp_pointnet = get_mlp([self.pointnet.dim1, self.embed_dim])
         elif args.pointnet_features == 2:
             self.mlp_pointnet = get_mlp([self.pointnet.dim2, self.embed_dim])
-        self.mlp_merge = get_mlp([len(args.use_features) * embed_dim, embed_dim])
+        merged_embedding_dim = len(args.use_features) * embed_dim
+        if "class_embed" in args and args.class_embed:
+            merged_embedding_dim += embed_dim
+        if "color_embed" in args and args.color_embed:
+            merged_embedding_dim += embed_dim
+        self.mlp_merge = get_mlp([merged_embedding_dim, embed_dim])
 
     def forward(self, objects: List[Object3d], object_points):
         """Features are currently normed before merging but not at the end.
@@ -84,21 +89,22 @@ class ObjectEncoder(torch.nn.Module):
                     color_idx = self.known_colors[obj.get_color_text()]
                     color_indices.append(color_idx)
 
-        if "class_embed" not in self.args or self.args.class_embed == False:
-            # Void all colors for ablation
-            if "color" not in self.args.use_features:
-                for pyg_batch in object_points:
-                    pyg_batch.x[:] = 0.0  # x is color, pos is xyz
+        # if "class_embed" not in self.args or self.args.class_embed == False:
+        #     # Void all colors for ablation
+        if "color" not in self.args.use_features:
+            for pyg_batch in object_points:
+                pyg_batch.x[:] = 0.0  # x is color, pos is xyz
 
-            object_features = [
-                self.pointnet(pyg_batch.to(self.get_device())).features2
-                for pyg_batch in object_points
-            ]  # [B, obj_counts, PN_dim]
+        object_features = [
+            self.pointnet(pyg_batch.to(self.get_device())).features2
+            for pyg_batch in object_points
+        ]  # [B, obj_counts, PN_dim]
 
-            object_features = torch.cat(object_features, dim=0)  # [total_objects, PN_dim]
-            object_features = self.mlp_pointnet(object_features)
+        object_features = torch.cat(object_features, dim=0)  # [total_objects, PN_dim]
+        object_features = self.mlp_pointnet(object_features)
 
         embeddings = []
+
         class_embedding = None
         if "class" in self.args.use_features:
             if (
