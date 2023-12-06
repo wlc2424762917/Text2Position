@@ -46,7 +46,7 @@ def train_epoch(model, dataloader, args):
         # print(f"\r{i_batch}/{len(dataloader)}", end="", flush=True)
         batch_size = len(batch["texts"])
         optimizer.zero_grad()
-        anchor = model.module.encode_text(batch["texts"])
+        # anchor = model.module.encode_text(batch["texts"])
         anchor_objects, clip_feature_objects = model.module.encode_text_objects(batch["texts_objects"])
         anchor_submap, clip_feature_submap = model.module.encode_text_submap(batch["texts_submap"])
         positive = model.module.encode_objects(batch["objects"], batch["object_points"])
