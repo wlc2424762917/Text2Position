@@ -29,6 +29,7 @@ from training.utils import plot_retrievals
 
 
 def train_epoch(model, dataloader, args):
+    model = nn.DataParallel(model)
     model.train()
     epoch_losses = []
 

@@ -107,7 +107,13 @@ class ObjectEncoder(torch.nn.Module):
                 class_embedding = self.class_embedding(
                     torch.tensor(class_indices, dtype=torch.long, device=self.get_device())
                 )
-                embeddings.append(F.normalize(class_embedding, dim=-1))
+                class_embedding = F.normalize(class_embedding, dim=-1)
+
+                # NOW: using both class embedding and object features
+                embeddings.append(class_embedding)
+                embeddings.append(
+                    F.normalize(object_features, dim=-1)
+                )  # Use features from PointNet
             else:
                 embeddings.append(
                     F.normalize(object_features, dim=-1)
@@ -116,10 +122,21 @@ class ObjectEncoder(torch.nn.Module):
         color_embedding = None
         if "color" in self.args.use_features:
             if "color_embed" in self.args and self.args.color_embed:
-                color_embedding = self.color_embedding(
+                color_label_embedding = self.color_embedding(
                     torch.tensor(color_indices, dtype=torch.long, device=self.get_device())
                 )
-                embeddings.append(F.normalize(color_embedding, dim=-1))
+
+                # NOW: use both color embedding and object.rgb features
+                embeddings.append(F.normalize(color_label_embedding, dim=-1))
+                colors = []
+                for objects_sample in objects:
+                    colors.extend([obj.get_color_rgb() for obj in objects_sample])
+                colors = np.array(colors)
+                color_embedding = self.color_encoder(
+                    torch.tensor(colors, dtype=torch.float, device=self.get_device())
+                )
+                color_embedding = F.normalize(color_embedding, dim=-1)
+                embeddings.append(color_embedding)
             else:
                 colors = []
                 for objects_sample in objects:
@@ -128,7 +145,8 @@ class ObjectEncoder(torch.nn.Module):
                 color_embedding = self.color_encoder(
                     torch.tensor(colors, dtype=torch.float, device=self.get_device())
                 )
-                embeddings.append(F.normalize(color_embedding, dim=-1))
+                color_embedding = F.normalize(color_embedding, dim=-1)
+                embeddings.append(color_embedding)
 
         if "position" in self.args.use_features:
             positions = []
@@ -145,7 +163,7 @@ class ObjectEncoder(torch.nn.Module):
         else:
             embeddings = embeddings[0]
 
-        return embeddings, F.normalize(class_embedding, dim=-1), F.normalize(color_embedding, dim=-1)
+        return embeddings, class_embedding, color_embedding
 
     @property
     def device(self):
