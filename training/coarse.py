@@ -128,7 +128,7 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
     for batch in dataloader:
         #print(f"eval: \r{index_offset}/{len(dataloader.dataset)}", end="", flush=True)
         # text_enc = model.encode_text(batch["texts"])
-        text_enc = model.encode_text_submap(batch["texts_submap"])
+        text_enc, text_clip_feature = model.encode_text_submap(batch["texts_submap"])
         batch_size = len(text_enc)
 
         text_encodings[index_offset : index_offset + batch_size, :] = (
