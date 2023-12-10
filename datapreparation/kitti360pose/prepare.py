@@ -14,6 +14,8 @@ import time
 from scipy.spatial.distance import cdist
 
 import open3d
+from datapreparation.kitti360pose.project_3D_2D import *
+
 
 try:
     import pptk
@@ -104,6 +106,11 @@ def extract_objects(xyz, rgb, lbl, iid):
     return objects
 
 
+def project_3d_2d_feature(objects, camera, frame):
+
+    pass
+
+
 def gather_objects(path_input, folder_name):
     """Gather the objects of a scene"""
     print(f"Loading objects for {folder_name}")
@@ -117,8 +124,7 @@ def gather_objects(path_input, folder_name):
     for i_file_name, file_name in enumerate(file_names):
         # print(f'\t loading file {file_name}, {i_file_name} / {len(file_names)}')
         xyz, rgb, lbl, iid = load_points(osp.join(path, file_name))
-        file_objects = extract_objects(xyz, rgb, lbl, iid)
-
+        file_objects = extract_objects(xyz, rgb, lbl, iid)  # xyz is in world coordinates
         # Add new object or merge to existing
         merges = 0
         for obj in file_objects:

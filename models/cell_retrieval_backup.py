@@ -6,14 +6,14 @@ import torch.optim as optim
 import torch.nn.functional as F
 import torch_geometric.nn as gnn
 from torch.utils.data import Dataset, DataLoader
+
 import time
 import numpy as np
 import os
 import pickle
 from easydict import EasyDict
 
-from models.modules import get_mlp, LanguageEncoder, Clip_LanguageEncoder, MaxPoolMultiHeadSelfAttention, Clip_LanguageEncoder_TransformerFuser
-
+from models.modules import get_mlp, LanguageEncoder, Clip_LanguageEncoder
 from models.object_encoder import ObjectEncoder
 import clip
 
@@ -42,22 +42,18 @@ class CellRetrievalNetwork(torch.nn.Module):
         """
         Object path
         """
-        self.lin = get_mlp([embed_dim, embed_dim, embed_dim])
-        print("use pyg edgeconv: ", args.use_edge_conv)
-        if args.use_edge_conv:
+
         # CARE: possibly handle variation in forward()!
-            if self.variation == 0:
-                self.graph1 = gnn.DynamicEdgeConv(
-                    get_mlp([2 * embed_dim, embed_dim, embed_dim], add_batchnorm=True), k=8, aggr="max"
-                )  # Originally: k=4
-                self.lin = get_mlp([embed_dim, embed_dim, embed_dim])
-            elif self.variation == 1:
-                self.graph1 = gnn.DynamicEdgeConv(
-                    get_mlp([2 * embed_dim, embed_dim, embed_dim], add_batchnorm=True), k=8, aggr="mean"
-                )  # Originally: k=4
-                self.lin = get_mlp([embed_dim, embed_dim, embed_dim])
-        else:  # use attention + pooling
-            self.attn_pooling = MaxPoolMultiHeadSelfAttention(embed_dim, num_heads=8)
+        if self.variation == 0:
+            self.graph1 = gnn.DynamicEdgeConv(
+                get_mlp([2 * embed_dim, embed_dim, embed_dim], add_batchnorm=True), k=8, aggr="max"
+            )  # Originally: k=4
+            self.lin = get_mlp([embed_dim, embed_dim, embed_dim])
+        elif self.variation == 1:
+            self.graph1 = gnn.DynamicEdgeConv(
+                get_mlp([2 * embed_dim, embed_dim, embed_dim], add_batchnorm=True), k=8, aggr="mean"
+            )  # Originally: k=4
+            self.lin = get_mlp([embed_dim, embed_dim, embed_dim])
 
         self.object_encoder = ObjectEncoder(embed_dim, known_classes, known_colors, args)
 
@@ -66,12 +62,6 @@ class CellRetrievalNetwork(torch.nn.Module):
         """
         if args.language_encoder == "CLIP_text":
             self.language_encoder = Clip_LanguageEncoder(clip_version="ViT-B/32")
-            self.language_linear = nn.Linear(512, embed_dim)
-            self.language_linear_object = nn.Linear(512, embed_dim)
-            self.language_linear_submap = nn.Linear(512, embed_dim)
-
-        elif args.language_encoder == "CLIP_text_transformer":
-            self.language_encoder = Clip_LanguageEncoder_TransformerFuser(clip_version="ViT-B/32")
             self.language_linear = nn.Linear(512, embed_dim)
             self.language_linear_object = nn.Linear(512, embed_dim)
             self.language_linear_submap = nn.Linear(512, embed_dim)
@@ -91,10 +81,9 @@ class CellRetrievalNetwork(torch.nn.Module):
         # print(descriptions[0])
         # print(descriptions)
         # quit()
-        if self.args.language_encoder == "CLIP_text" or self.args.language_encoder == "CLIP_text_transformer":
+        if self.args.language_encoder == "CLIP_text":
             description_clip_features = self.language_encoder(descriptions)
             description_encodings = self.language_linear(description_clip_features)
-            description_encodings = F.normalize(description_encodings)
         else:
             description_encodings = self.language_encoder(descriptions)  # [B, DIM]
             description_encodings = F.normalize(description_encodings)
@@ -105,10 +94,9 @@ class CellRetrievalNetwork(torch.nn.Module):
         # print(descriptions[0])
         # print(descriptions)
         # quit()
-        if self.args.language_encoder == "CLIP_text" or self.args.language_encoder == "CLIP_text_transformer":
+        if self.args.language_encoder == "CLIP_text":
             description_clip_features = self.language_encoder(descriptions)
             description_encodings = self.language_linear_object(description_clip_features)
-            description_encodings, description_clip_features = F.normalize(description_encodings), F.normalize(description_clip_features)
             return description_encodings, description_clip_features
         else:
             description_encodings = self.language_encoder(descriptions)  # [B, DIM]
@@ -117,17 +105,16 @@ class CellRetrievalNetwork(torch.nn.Module):
 
     def encode_text_submap(self, descriptions):
         batch_size = len(descriptions)
-        if self.args.language_encoder == "CLIP_text" or self.args.language_encoder == "CLIP_text_transformer":
+        if self.args.language_encoder == "CLIP_text":
             description_clip_features = self.language_encoder(descriptions)
             description_encodings = self.language_linear_submap(description_clip_features)
-            description_encodings, description_clip_features = F.normalize(description_encodings), F.normalize(description_clip_features)
             return description_encodings, description_clip_features
         else:
             description_encodings = self.language_encoder(descriptions)  # [B, DIM]
             description_encodings = F.normalize(description_encodings)
         return description_encodings, None
 
-    def encode_objects(self, objects, object_points, use_edge_conv):
+    def encode_objects(self, objects, object_points):
         """
         Process the objects in a flattened way to allow for the processing of batches with uneven sample counts
         """
@@ -145,18 +132,15 @@ class CellRetrievalNetwork(torch.nn.Module):
         embeddings, class_embeddings, color_embeddings = self.object_encoder(objects, object_points)
         # print("embeddings", embeddings.shape, "class_embeddings", class_embeddings.shape, "color_embeddings", color_embeddings.shape)
         embeddings = F.normalize(embeddings, dim=-1)  # OPTION: normalize, this is new
-        if use_edge_conv:
-            if self.variation == 0:
-                x = self.graph1(embeddings, batch)
-                x = gnn.global_max_pool(x, batch)
-                x = self.lin(x)
-            elif self.variation == 1:
-                x = self.graph1(embeddings, batch)
-                x = gnn.global_mean_pool(x, batch)
-                x = self.lin(x)
-        else:
-            embeddings = embeddings.to(self.device)
-            x = self.attn_pooling(embeddings, batch)
+        # print("embeddings", embeddings.shape)
+        if self.variation == 0:
+            x = self.graph1(embeddings, batch)
+            x = gnn.global_max_pool(x, batch)
+            x = self.lin(x)
+        if self.variation == 1:
+            x = self.graph1(embeddings, batch)
+            x = gnn.global_mean_pool(x, batch)
+            x = self.lin(x)
 
         x = F.normalize(x)
         # print("x", x.shape)

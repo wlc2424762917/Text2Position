@@ -49,7 +49,7 @@ def train_epoch(model, dataloader, args):
         # anchor = model.module.encode_text(batch["texts"])
         anchor_objects, clip_feature_objects = model.module.encode_text_objects(batch["texts_objects"])
         anchor_submap, clip_feature_submap = model.module.encode_text_submap(batch["texts_submap"])
-        positive = model.module.encode_objects(batch["objects"], batch["object_points"])
+        positive = model.module.encode_objects(batch["objects"], batch["object_points"], args.use_edge_conv)
         # print("anchor_object: ", anchor_objects.shape)
         # print("anchor_submap: ", anchor_submap.shape)
         # print("anchor", anchor.shape)
@@ -126,7 +126,6 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
     # t0 = time.time()
     index_offset = 0
     for batch in dataloader:
-        #print(f"eval: \r{index_offset}/{len(dataloader.dataset)}", end="", flush=True)
         # text_enc = model.encode_text(batch["texts"])
         text_enc, text_clip_feature = model.encode_text_submap(batch["texts_submap"])
         batch_size = len(text_enc)
@@ -141,7 +140,7 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
     # Encode the database side
     index_offset = 0
     for batch in cells_dataloader:
-        cell_enc = model.encode_objects(batch["objects"], batch["object_points"])
+        cell_enc = model.encode_objects(batch["objects"], batch["object_points"], args.use_edge_conv)
         batch_size = len(cell_enc)
 
         cell_encodings[index_offset : index_offset + batch_size, :] = (
@@ -321,6 +320,7 @@ if __name__ == "__main__":
         for epoch in range(1, args.epochs + 1):
             # dataset_train.reset_seed() #OPTION: re-setting seed leads to equal data at every epoch
             time_start_epoch = time.time()
+
             loss, train_batches = train_epoch(model, dataloader_train, args)
             # train_acc, train_retrievals = eval_epoch(model, train_batches, args)
             time_end_epoch = time.time()
