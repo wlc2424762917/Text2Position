@@ -247,7 +247,7 @@ class Kitti360CoarseCellOnlyDataset(Dataset):
 
 
 if __name__ == "__main__":
-    base_path = "/home/wanglichao/Text2Pos-CVPR2022/data/k360_30-10_scG_pd10_pc4_spY_all/"
+    base_path = "/home/wanglichao/Text2Position/data/k360_30-10_scG_pd10_pc4_spY_all/"
 
     transform = T.FixedPoints(256)
 
@@ -262,17 +262,20 @@ if __name__ == "__main__":
         # pose_f, cell_f, text_f, hints_f, offsets_f = flip_pose_in_cell(pose, cell, text, 1, hints=hints, offsets=offsets)
 
         # Gather information about duplicate descriptions
-        descriptors = []
-        for pose in dataset.all_poses:
-            mentioned = sorted(
-                [f"{d.object_label}_{d.object_color_text}_{d.direction}" for d in pose.descriptions]
-            )
-            descriptors.append(mentioned)
-
-        unique, counts = np.unique(descriptors, return_counts=True)
-        # for d in descriptors[0:10]:
-        #     print('\t',d)
-        print(
-            f"{len(descriptors)} poses, {len(unique)} uniques, {np.max(counts)} max duplicates, {np.mean(counts):0.2f} mean duplicates"
-        )
-        print("---- \n\n")
+        # descriptors = []
+        # for pose in dataset.all_poses:
+        #     mentioned = sorted(
+        #         [f"{d.object_label}_{d.object_color_text}_{d.direction}" for d in pose.descriptions]
+        #     )
+        #     descriptors.append(mentioned)
+        #
+        # unique, counts = np.unique(descriptors, return_counts=True)
+        # # for d in descriptors[0:10]:
+        # #     print('\t',d)
+        # print(
+        #     f"{len(descriptors)} poses, {len(unique)} uniques, {np.max(counts)} max duplicates, {np.mean(counts):0.2f} mean duplicates"
+        # )
+        # print("---- \n\n")
+        for cell in dataset.all_cells:
+            if len(cell.objects) == 0:
+                print(len(cell.objects))

@@ -1,8 +1,10 @@
 """Module to prepare the original Kitti360 into Kitti360Pose
 """
-
+import cv2
+import matplotlib.pyplot as plt
+import clip
 from typing import List
-
+from datapreparation.kitti360pose.utils import *
 import cv2
 import os
 import os.path as osp
@@ -10,12 +12,12 @@ import numpy as np
 import pickle
 import sys
 import time
-
+from PIL import Image
 from scipy.spatial.distance import cdist
 
 import open3d
 from datapreparation.kitti360pose.project_3D_2D import *
-
+from datapreparation.kitti360pose.labels import id2label
 
 try:
     import pptk
@@ -106,9 +108,148 @@ def extract_objects(xyz, rgb, lbl, iid):
     return objects
 
 
-def project_3d_2d_feature(objects, camera, frame):
+def project_3d_2d_feature(kitti360Path, sequence, objects, num_random_rounds=10, num_selected_points=5, num_levels=3, multi_level_expansion_ratio=0.1, save_crops=False, out_folder=None):
+    # instances_clip_features = np.zeros((len(objects), 768))  # initialize mask clip
+    # loop over objects
+    print(f"Projecting 3D objects, {sequence}, to 2D features...")
+    objects_num = len(objects)
+    objects_with_2D_feature_num = 0
+    for idx_obj, obj in enumerate(objects):
+        # loop over frames
+        # perspective
+        image_crops = []
+        for cam_id in range(2):
+            if cam_id == 0 or cam_id == 1:
+                camera = CameraPerspective(kitti360Path, sequence, cam_id)
+            else:
+                raise RuntimeError('Invalid Camera ID! fisheye not available.')
+            for frame in camera.frames:
+                # perspective
+                if cam_id == 0 or cam_id == 1:
+                    image_file = os.path.join(kitti360Path, 'data_2d_raw', sequence, 'image_%02d' % cam_id, 'data_rect',
+                                              '%010d.png' % frame)
+                else:
+                    raise RuntimeError('Invalid Camera ID!')
+                if not os.path.isfile(image_file):
+                    print('Missing %s ...' % image_file)
+                    continue
 
-    pass
+                print(image_file)
+                image2D = Image.open(image_file).convert("RGB")
+                np_image2D = np.array(image2D)  # np_image2D is (y, x, 3) height, width, channels
+                plt.imshow(np_image2D[:, :, ::-1])
+
+                clip_model, clip_preprocess = clip.load("ViT-B/32", device='cuda')
+                uv, d = camera.project_vertices(obj.xyz, frame)  # uv is (x, y) width and height
+                mask = np.logical_and(np.logical_and(d > 0, uv[0] > 0), uv[1] > 0)
+                mask = np.logical_and(np.logical_and(mask, uv[0] < np_image2D.shape[1]),
+                                      uv[1] < np_image2D.shape[0])
+
+                plt.plot(uv[0][mask], uv[1][mask], 'r.')
+                plt.savefig(f"crop_{frame}_{sequence}_{obj.id}_{obj.label}_project.png")
+
+
+                point_coords = np.array([uv[0][mask], uv[1][mask]]).T
+                if (point_coords.shape[0] > 0):
+                    predictor_sam = initialize_sam_model(device='cuda')
+                    predictor_sam.set_image(np_image2D)
+                    best_mask = run_sam(image_size=np_image2D,
+                                        num_random_rounds=num_random_rounds,
+                                        num_selected_points=num_selected_points,
+                                        point_coords=point_coords,
+                                        predictor_sam=predictor_sam, )
+
+                    # MULTI LEVEL CROPS
+                    for level in range(num_levels):
+                        # get the bbox and corresponding crops
+                        x1, y1, x2, y2 = mask2box_multi_level(torch.from_numpy(best_mask), level,
+                                                              multi_level_expansion_ratio)
+                        cropped_img =image2D.crop((x1, y1, x2, y2))
+
+                        if (save_crops):
+                            cropped_img.save(os.path.join(out_folder, f"crop{sequence}_{obj.id}_{obj.label}_{level}.png"))
+
+                        # Currently compute the CLIP feature using the standard clip model
+                        # TODO: using mask-adapted CLIP
+                        cropped_img_processed = clip_preprocess(cropped_img)
+                        image_crops.append(cropped_img_processed)
+
+        if (len(image_crops) > 0):
+            image_input = torch.tensor(np.stack(image_crops))
+            with torch.no_grad():
+                image_features = clip_model.encode_image(image_input.to('cuda')).float()
+                image_features /= image_features.norm(dim=-1, keepdim=True)  # normalize
+
+            # instances_clip_features[idx_obj] = image_features.mean(axis=0).cpu().numpy()
+            obj.feature_2d = image_features.mean(axis=0).cpu().numpy()
+            objects_with_2D_feature_num +=1
+
+        return objects_with_2D_feature_num, objects_num
+
+
+# def project_3d_2d_feature(kitti360Path, sequence, objects, cam_id, num_random_rounds=10, num_selected_points=5, num_levels=3, multi_level_expansion_ratio=0.1, save_crops=False, out_folder=None):
+#     # loop over frames
+#     # perspective
+#     if cam_id == 0 or cam_id == 1:
+#         camera = CameraPerspective(kitti360Path, sequence, cam_id)
+#     else:
+#         raise RuntimeError('Invalid Camera ID! fisheye not available.')
+#     for frame in camera.frames:
+#         # perspective
+#         if cam_id == 0 or cam_id == 1:
+#             image_file = os.path.join(kitti360Path, 'data_2d_raw', sequence, 'image_%02d' % cam_id, 'data_rect',
+#                                       '%010d.png' % frame)
+#         # fisheye not implemented
+#         elif cam_id == 2 or cam_id == 3:
+#             image_file = os.path.join(kitti360Path, 'data_2d_raw', sequence, 'image_%02d' % cam_id, 'data_rgb',
+#                                       '%010d.png' % frame)
+#         else:
+#             raise RuntimeError('Invalid Camera ID!')
+#         if not os.path.isfile(image_file):
+#             print('Missing %s ...' % image_file)
+#             continue
+#
+#         print(image_file)
+#         image2D = Image.open(image_file)
+#         np_image2D = np.array(image2D)
+#
+#         clip_preprocess = clip.load(clip_version="ViT-B/32", device='cuda')
+#         # project 3D points to 2D
+#         for obj in objects:
+#             uv, depth = camera.project_vertices(obj.xyz, frame)
+#             point_coords = np.array(uv).T
+#             if (point_coords.shape[0] > 0):
+#                 predictor_sam.set_image(np_image2D)
+#                 predictor_sam = initialize_sam_model(device='cuda')
+#                 best_mask = run_sam(image_size=np_image2D,
+#                                     num_random_rounds=num_random_rounds,
+#                                     num_selected_points=num_selected_points,
+#                                     point_coords=point_coords,
+#                                     predictor_sam=predictor_sam, )
+#
+#                 # MULTI LEVEL CROPS
+#                 for level in range(num_levels):
+#                     # get the bbox and corresponding crops
+#                     x1, y1, x2, y2 = mask2box_multi_level(torch.from_numpy(best_mask), level,
+#                                                           multi_level_expansion_ratio)
+#                     cropped_img =image2D.crop((x1, y1, x2, y2))
+#
+#                     if (save_crops):
+#                         cropped_img.save(os.path.join(out_folder, f"crop{mask}_{image_file}_{level}.png"))
+#
+#                     # Currently compute the CLIP feature using the standard clip model
+#                     # TODO: using mask-adapted CLIP
+#                     cropped_img_processed = clip_preprocess(cropped_img)
+#
+#     if (len(images_crops) > 0):
+#         image_input = torch.tensor(np.stack(images_crops))
+#         with torch.no_grad():
+#             image_features = self.clip_model.encode_image(image_input.to(self.device)).float()
+#             image_features /= image_features.norm(dim=-1, keepdim=True)  # normalize
+#
+#         mask_clip[mask] = image_features.mean(axis=0).cpu().numpy()
+#
+#     return mask_clip
 
 
 def gather_objects(path_input, folder_name):
@@ -122,7 +263,7 @@ def gather_objects(path_input, folder_name):
     scene_objects = {}
 
     for i_file_name, file_name in enumerate(file_names):
-        # print(f'\t loading file {file_name}, {i_file_name} / {len(file_names)}')
+        print(f'\t loading file {file_name}, {i_file_name} / {len(file_names)}')
         xyz, rgb, lbl, iid = load_points(osp.join(path, file_name))
         file_objects = extract_objects(xyz, rgb, lbl, iid)  # xyz is in world coordinates
         # Add new object or merge to existing
@@ -139,7 +280,7 @@ def gather_objects(path_input, folder_name):
             if voxel_size is not None:
                 indices = downsample_points(scene_objects[obj.id].xyz, voxel_size)
                 scene_objects[obj.id].apply_downsampling(indices)
-        # print(f'Merged {merges} / {len(file_objects)}')
+        print(f'Merged {merges} / {len(file_objects)}')
 
     # Thresh objects by number of points
     objects = list(scene_objects.values())
@@ -155,6 +296,9 @@ def gather_objects(path_input, folder_name):
             objects_threshed.append(obj)
     print(thresh_counts)
 
+    # TODO Converting 3D objects to 2D CLIP features
+    n_obj_2D_feature, n_obj = project_3d_2d_feature(path_input, folder_name, objects_threshed, num_random_rounds=10, num_selected_points=5, num_levels=3, multi_level_expansion_ratio=0.1, save_crops=True, out_folder='./tmp_crop/')
+    print(f"Number of objects with 2D feature: {n_obj_2D_feature} / {n_obj}")
     return objects_threshed
 
 
@@ -476,7 +620,7 @@ if __name__ == "__main__":
 
     t_object_loaded = time.time()
 
-    # Filter out locations that= are too far from objects
+    # Filter out locations that are too far from objects
     cell_locations, cell_location_objects = get_close_locations(
         cell_locations, objects, args.cell_size, cell_location_objects
     )

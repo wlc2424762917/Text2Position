@@ -20,7 +20,7 @@ from models.superglue_matcher import SuperGlueMatch
 from dataloading.kitti360pose.poses import Kitti360FineDataset, Kitti360FineDatasetMulti
 
 
-from datapreparation.semantic3d.imports import COLORS as COLORS_S3D, COLOR_NAMES as COLOR_NAMES_S3D
+# from datapreparation.semantic3d.imports import COLORS as COLORS_S3D, COLOR_NAMES as COLOR_NAMES_S3D
 from datapreparation.kitti360pose.utils import (
     COLORS as COLORS_K360,
     COLOR_NAMES as COLOR_NAMES_K360,

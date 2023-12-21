@@ -24,6 +24,7 @@ from abc import ABCMeta, abstractmethod
 from kitti360scripts.helpers.labels import labels, id2label, kittiId2label, name2label
 
 MAX_N = 1000
+os.environ["KITTI360_DATASET"] = '/home/wanglichao/KITTI-360'
 
 
 def local2global(semanticId, instanceId):
@@ -539,7 +540,6 @@ if __name__ == "__main__":
 # !/usr/bin/python
 #
 
-from __future__ import print_function, absolute_import, division
 import os
 import json
 from skimage import io, filters
@@ -576,7 +576,7 @@ def global2local(globalId):
     semanticId = globalId // MAX_N
     instanceId = globalId % MAX_N
     if isinstance(globalId, np.ndarray):
-        return semanticId.astype(np.int), instanceId.astype(np.int)
+        return semanticId.astype(np.int32), instanceId.astype(np.int32)
     else:
         return int(semanticId), int(instanceId)
 

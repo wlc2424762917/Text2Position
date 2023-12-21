@@ -239,12 +239,14 @@ class TransformerWithMaxPool(nn.Module):
         # 创建 Transformer 编码器层
         encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        # self.transformer_encoder_1 = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         # MaxPooling 层
         self.maxpool = nn.AdaptiveMaxPool1d(1)
 
     def forward(self, src):
         # Transformer 编码器处理
         transformer_output = self.transformer_encoder(src)
+        # transformer_output = self.transformer_encoder_1(transformer_output)
         # 转换维度以适应 MaxPooling 层
         transformer_output = transformer_output.permute(1, 2, 0)
         # 应用 MaxPooling

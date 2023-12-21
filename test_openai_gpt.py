@@ -108,43 +108,47 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class TransformerWithMaxPool(nn.Module):
-    def __init__(self, d_model, nhead, num_layers, dim_feedforward):
-        super(TransformerWithMaxPool, self).__init__()
-        # 创建 Transformer 编码器层
-        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward)
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        # MaxPooling 层
-        self.maxpool = nn.AdaptiveMaxPool1d(1)
+# class TransformerWithMaxPool(nn.Module):
+#     def __init__(self, d_model, nhead, num_layers, dim_feedforward):
+#         super(TransformerWithMaxPool, self).__init__()
+#         # 创建 Transformer 编码器层
+#         encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward)
+#         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+#         # MaxPooling 层
+#         self.maxpool = nn.AdaptiveMaxPool1d(1)
+#
+#     def forward(self, src):
+#         # Transformer 编码器处理
+#         transformer_output = self.transformer_encoder(src)
+#         # 转换维度以适应 MaxPooling 层
+#         transformer_output = transformer_output.permute(1, 2, 0)
+#         # 应用 MaxPooling
+#         pooled_output = self.maxpool(transformer_output)
+#         # 再次转换维度
+#         pooled_output = pooled_output.permute(2, 0, 1)
+#         return pooled_output.squeeze(0)
+#
+# # 创建模型实例
+# d_model = 512
+# nhead = 8
+# num_layers = 3
+# dim_feedforward = 2048
+#
+# model = TransformerWithMaxPool(d_model, nhead, num_layers, dim_feedforward)
 
-    def forward(self, src):
-        # Transformer 编码器处理
-        transformer_output = self.transformer_encoder(src)
-        # 转换维度以适应 MaxPooling 层
-        transformer_output = transformer_output.permute(1, 2, 0)
-        # 应用 MaxPooling
-        pooled_output = self.maxpool(transformer_output)
-        # 再次转换维度
-        pooled_output = pooled_output.permute(2, 0, 1)
-        return pooled_output.squeeze(0)
+# # 生成随机输入数据
+# seq_len = 10  # 序列长度
+# batch_size = 5  # 批处理大小
+#
+# src = torch.rand(seq_len, batch_size, d_model)  # 随机生成输入数据
+#
+# # 传递输入数据到模型
+# output = model(src)
+#
+# print(output.shape)
 
-# 创建模型实例
-d_model = 512
-nhead = 8
-num_layers = 3
-dim_feedforward = 2048
-
-model = TransformerWithMaxPool(d_model, nhead, num_layers, dim_feedforward)
-
-# 生成随机输入数据
-seq_len = 10  # 序列长度
-batch_size = 5  # 批处理大小
-
-src = torch.rand(seq_len, batch_size, d_model)  # 随机生成输入数据
-
-# 传递输入数据到模型
-output = model(src)
-
-print(output.shape)
-
-
+import numpy as np
+a = np.array([[1,2],[4,5],[3,6]])
+print(a)
+a = a.T
+print(a)

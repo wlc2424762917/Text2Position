@@ -1,9 +1,29 @@
+import glob
 import os
 import numpy as np
 import re
+
+import open3d
 import yaml
 import sys
-
+from plyfile import PlyData, PlyElement
+from datapreparation.kitti360pose.utils import *
+from datapreparation.kitti360pose.drawing import (
+    show_pptk,
+    show_objects,
+    plot_cell,
+    plot_pose_in_best_cell,
+    plot_cells_and_poses,
+)
+from datapreparation.kitti360pose.utils import (
+    CLASS_TO_LABEL,
+    LABEL_TO_CLASS,
+    COLORS,
+    COLOR_NAMES,
+    SCENE_NAMES,
+)
+from datapreparation.kitti360pose.utils import CLASS_TO_MINPOINTS, CLASS_TO_VOXELSIZE, STUFF_CLASSES
+from datapreparation.kitti360pose.imports import Object3d, Cell, Pose
 
 def checkfile(filename):
     if not os.path.isfile(filename):
@@ -151,6 +171,7 @@ class CameraPerspective(Camera):
         assert (cam_id == 0 or cam_id == 1)
 
         pose_dir = os.path.join(root_dir, 'data_poses', seq)
+        print(pose_dir)
         calib_dir = os.path.join(root_dir, 'calibration')
         self.pose_file = os.path.join(pose_dir, "poses.txt")
         self.intrinsic_file = os.path.join(calib_dir, 'perspective.txt')
@@ -193,8 +214,8 @@ class CameraPerspective(Camera):
         points_proj = np.matmul(self.K[:3, :3].reshape([1, 3, 3]), points)
         depth = points_proj[:, 2, :]
         depth[depth == 0] = -1e-6
-        u = np.round(points_proj[:, 0, :] / np.abs(depth)).astype(np.int)
-        v = np.round(points_proj[:, 1, :] / np.abs(depth)).astype(np.int)
+        u = np.round(points_proj[:, 0, :] / np.abs(depth)).astype(np.int32)
+        v = np.round(points_proj[:, 1, :] / np.abs(depth)).astype(np.int32)
 
         if ndim == 2:
             u = u[0];
@@ -259,6 +280,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from labels import id2label
 
+    semantics = 1
     os.environ["KITTI360_DATASET"] = '/home/wanglichao/KITTI-360'
 
     if 'KITTI360_DATASET' in os.environ:
@@ -299,30 +321,184 @@ if __name__ == "__main__":
         print(image_file)
         image = cv2.imread(image_file)
         plt.imshow(image[:, :, ::-1])
-
+        depth_buffer = np.full(image.shape[0:2], np.inf)
+        print(depth_buffer.shape)
         # 3D bbox
-        from annotation import Annotation3D
+        if semantics == 0:
+            from annotation import Annotation3D
 
-        label3DBboxPath = os.path.join(kitti360Path, 'data_3d_semantics')
-        annotation3D = Annotation3D(label3DBboxPath, sequence)
+            label3DBboxPath = os.path.join(kitti360Path, 'data_3d_bboxes')
+            annotation3D = Annotation3D(label3DBboxPath, sequence)
 
-        points = []
-        depths = []
-        for k, v in annotation3D.objects.items():
-            if len(v.keys()) == 1 and (-1 in v.keys()):  # show static only
-                obj3d = v[-1]
-                if not id2label[obj3d.semanticId].name == 'building':  # show buildings only
+            for k, v in annotation3D.objects.items():
+                if len(v.keys()) == 1 and (-1 in v.keys()):  # show static only
+                    obj3d = v[-1]
+                    if not id2label[obj3d.semanticId].name == 'building':  # show buildings only
+                        continue
+                    camera(obj3d, frame)
+                    vertices = np.asarray(obj3d.vertices_proj).T  # 3xN  # 顶点坐标
+                    for line in obj3d.lines:
+                        v = [obj3d.vertices[line[0]] * x + obj3d.vertices[line[1]] * (1 - x) for x in np.arange(0, 1, 0.01)]
+                        uv, d = camera.project_vertices(np.asarray(v), frame)
+                        mask = np.logical_and(np.logical_and(d > 0, uv[0] > 0), uv[1] > 0)  # 去除投影到图像平面后的线段坐标中的异常值
+                        mask = np.logical_and(np.logical_and(mask, uv[0] < image.shape[1]), uv[1] < image.shape[0])  # 去除投影到图像平面后的线段坐标中的异常值
+                        plt.plot(uv[0][mask], uv[1][mask], 'r.')
+
+        elif semantics == 1:
+            def load_points(filepath):
+                plydata = PlyData.read(filepath)
+
+                xyz = np.stack((plydata["vertex"]["x"], plydata["vertex"]["y"], plydata["vertex"]["z"])).T
+                rgb = np.stack(
+                    (plydata["vertex"]["red"], plydata["vertex"]["green"], plydata["vertex"]["blue"])
+                ).T
+
+                lbl = plydata["vertex"]["semantic"]
+                iid = plydata["vertex"]["instance"]
+
+                return xyz, rgb, lbl, iid
+
+            def extract_objects(xyz, rgb, lbl, iid):
+                objects = []
+
+                for label_name, label_idx in CLASS_TO_LABEL.items():
+                    mask = lbl == label_idx
+                    label_xyz, label_rgb, label_iid = xyz[mask], rgb[mask], iid[mask]
+
+                    for obj_iid in np.unique(label_iid):
+                        mask = label_iid == obj_iid
+                        obj_xyz, obj_rgb = label_xyz[mask], label_rgb[mask]
+
+                        obj_rgb = obj_rgb.astype(np.float32) / 255.0  # Scale colors [0,1]
+
+                        # objects.append(Object3d(obj_xyz, obj_rgb, label_name, obj_iid))
+                        objects.append(
+                            Object3d(obj_iid, obj_iid, obj_xyz, obj_rgb, label_name)
+                        )  # Initially also set id instance-id for later mergin. Re-set in create_cell()
+
+                return objects
+
+
+            def downsample_points(points, voxel_size):
+                # voxel_size = 0.25
+                point_cloud = open3d.geometry.PointCloud()
+                point_cloud.points = open3d.utility.Vector3dVector(points.copy())
+                _, _, indices_list = point_cloud.voxel_down_sample_and_trace(
+                    voxel_size, point_cloud.get_min_bound(), point_cloud.get_max_bound()
+                )
+                # print(f'Downsampled from {len(points)} to {len(indices_list)} points')
+
+                indices = np.array(
+                    [vec[0] for vec in indices_list]
+                )  # Not vectorized but seems fast enough, CARE: first-index color sampling (not averaging)
+
+                return indices
+
+            label3DSemanticsPaths = os.path.join(kitti360Path, 'data_3d_semantics', sequence, "static")
+            plys = glob.glob(os.path.join(label3DSemanticsPaths, "*.ply"))
+            scene_objects = {}
+            for ply in plys:
+                xyz, rgb, lbl, iid = load_points(ply)
+                file_objects = extract_objects(xyz, rgb, lbl, iid)  # xyz is in world coordinates
+
+                # GET DEPTH BUFFER
+                uv, d = camera.project_vertices(xyz, frame)
+                mask = np.logical_and(np.logical_and(d > 0, uv[0] > 0), uv[1] > 0)
+                mask = np.logical_and(np.logical_and(mask, uv[0] < image.shape[1]), uv[1] < image.shape[0])
+                uv, d = (uv[0][mask], uv[1][mask]), d[mask]
+                for i in range(len(d)):
+                    if d[i] > 0 and d[i] < depth_buffer[int(uv[1][i]), int(uv[0][i])]:
+                        depth_buffer[int(uv[1][i]), int(uv[0][i])] = d[i]
+
+
+                # Add new object or merge to existing
+                merges = 0
+                for obj in file_objects:
+                    if obj.id in scene_objects:
+                        scene_objects[obj.id] = Object3d.merge(scene_objects[obj.id], obj)
+                        merges += 1
+                    else:
+                        scene_objects[obj.id] = obj
+
+                    # Downsample the new or merged object
+                    voxel_size = CLASS_TO_VOXELSIZE[obj.label]
+                    if voxel_size is not None:
+                        indices = downsample_points(scene_objects[obj.id].xyz, voxel_size)
+                        scene_objects[obj.id].apply_downsampling(indices)
+                print(f'Merged {merges} / {len(file_objects)}')
+
+
+            objects = list(scene_objects.values())
+            thresh_counts = {}
+            objects_threshed = []
+            for obj in objects:
+                if len(obj.xyz) < CLASS_TO_MINPOINTS[obj.label]:
+                    if obj.label in thresh_counts:
+                        thresh_counts[obj.label] += 1
+                    else:
+                        thresh_counts[obj.label] = 1
+                else:
+                    objects_threshed.append(obj)
+            print(len(objects_threshed))
+            for obj in objects_threshed:
+                print(obj.label, len(obj.xyz))
+                if obj.label != 'garage':
                     continue
-                camera(obj3d, frame)
-                vertices = np.asarray(obj3d.vertices_proj).T  # 3xN
-                points.append(np.asarray(obj3d.vertices_proj).T)
-                depths.append(np.asarray(obj3d.vertices_depth))
-                for line in obj3d.lines:
-                    v = [obj3d.vertices[line[0]] * x + obj3d.vertices[line[1]] * (1 - x) for x in np.arange(0, 1, 0.01)]
-                    uv, d = camera.project_vertices(np.asarray(v), frame)
-                    mask = np.logical_and(np.logical_and(d > 0, uv[0] > 0), uv[1] > 0)
-                    mask = np.logical_and(np.logical_and(mask, uv[0] < image.shape[1]), uv[1] < image.shape[0])
-                    plt.plot(uv[0][mask], uv[1][mask], 'r.')
+                uv, d = camera.project_vertices(obj.xyz, frame)
+                # print(len(uv))
+                # print(uv[0].shape)
+                # uv = np.array(uv)
+                # print(uv.shape)
+                mask = np.logical_and(np.logical_and(d > 0, uv[0] > 0), uv[1] > 0)
+                mask = np.logical_and(np.logical_and(mask, uv[0] < image.shape[1]), uv[1] < image.shape[0])
+                uv, d = (uv[0][mask], uv[1][mask]), d[mask]
+                mask = [d[i] <= depth_buffer[int(uv[1][i]), int(uv[0][i])] for i in range(len(d))]
+                # print(uv[0][mask].shape, uv[1][mask].shape)
+                # print(np.array([uv[0][mask], uv[1][mask]]).shape)
+                plt.plot(uv[0][mask], uv[1][mask], 'r.', markersize=0.1)
+
+        else:
+            def load_points(filepath):
+                plydata = PlyData.read(filepath)
+
+                xyz = np.stack((plydata["vertex"]["x"], plydata["vertex"]["y"], plydata["vertex"]["z"])).T
+                rgb = np.stack(
+                    (plydata["vertex"]["red"], plydata["vertex"]["green"], plydata["vertex"]["blue"])
+                ).T
+
+                lbl = plydata["vertex"]["semantic"]
+                iid = plydata["vertex"]["instance"]
+
+                return xyz, rgb, lbl, iid
+
+            label3DSemanticsPaths = os.path.join(kitti360Path, 'data_3d_semantics', sequence, "static")
+            plys = glob.glob(os.path.join(label3DSemanticsPaths, "*.ply"))
+            for ply in plys:
+                xyz, rgb, lbl, iid = load_points(ply)
+                # print(np.unique(lbl))
+                uv, d = camera.project_vertices(xyz, frame)
+                mask = np.logical_and(np.logical_and(d > 0, uv[0] > 0), uv[1] > 0)
+                mask = np.logical_and(np.logical_and(mask, uv[0] < image.shape[1]), uv[1] < image.shape[0])
+                uv, d = (uv[0][mask], uv[1][mask]), d[mask]
+                for i in range(len(d)):
+                    if d[i] > 0 and d[i] < depth_buffer[uv[1][i], uv[0][i]]:
+                        depth_buffer[uv[1][i], uv[0][i]] = d[i]
+
+            for ply in plys:
+                xyz, rgb, lbl, iid = load_points(ply)
+                # mask out lbl!= "building"
+                mask = lbl == 21
+                xyz = xyz[mask]
+                uv, d = camera.project_vertices(xyz, frame)
+                mask = np.logical_and(np.logical_and(d > 0, uv[0] > 0), uv[1] > 0)
+                mask = np.logical_and(np.logical_and(mask, uv[0] < image.shape[1]), uv[1] < image.shape[0])
+                uv, d = (uv[0][mask], uv[1][mask]), d[mask]
+                mask = [d[i] <= depth_buffer[int(uv[1][i]), int(uv[0][i])] for i in range(len(d))]
+                # print(uv[0][mask].shape, uv[1][mask].shape)
+                # print(np.array([uv[0][mask], uv[1][mask]]).shape)
+                plt.plot(uv[0][mask], uv[1][mask], 'r.')
+                # break
+
 
         plt.pause(0.5)
         plt.clf()
