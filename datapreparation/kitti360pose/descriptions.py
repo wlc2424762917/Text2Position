@@ -154,7 +154,7 @@ def create_cell(
 
 
 def describe_pose_in_pose_cell(
-    pose_w: np.ndarray, cell: Cell, select_by, num_mentioned, max_dist=0.5, no_ontop=False
+    pose_w: np.ndarray, cell: Cell, select_by, num_mentioned, max_dist=0.5, no_ontop=False, obj_poses=False
 ) -> List[DescriptionPoseCell]:
     """Describes a pose in a given cell.
 
@@ -197,6 +197,7 @@ def describe_pose_in_pose_cell(
         raise ValueError(f"Invalid selection method: {select_by}.")
 
     descriptions = []
+    obj_info = []
     for obj in selected_objects:
         if no_ontop:
             direction = get_direction_noOntop(obj, pose)
@@ -210,8 +211,10 @@ def describe_pose_in_pose_cell(
         descriptions.append(
             DescriptionPoseCell(obj, direction, offset_center, offset_closest, closest_point)
         )
-
-    return descriptions
+        obj_info.append(obj)
+    if not obj_poses:
+        return descriptions
+    return descriptions, obj_info
 
 
 def ground_pose_to_best_cell(

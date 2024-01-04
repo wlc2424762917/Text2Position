@@ -62,6 +62,7 @@ def parse_arguments():
 
     parser.add_argument("--class_embed", action="store_true")
     parser.add_argument("--color_embed", action="store_true")
+    parser.add_argument("--num_embed", action="store_true")
 
     # PyG
     parser.add_argument("--use_edge_conv", action="store_true")
@@ -109,7 +110,7 @@ def parse_arguments():
 
     assert args.ranking_loss in ("triplet", "pairwise", "hardest", "CLIP")
     for feat in args.use_features:
-        assert feat in ["class", "color", "position"], "Unexpected feature"
+        assert feat in ["class", "color", "position", "num_points"], "Unexpected feature"
 
     if args.pointnet_path:
         assert osp.isfile(args.pointnet_path)

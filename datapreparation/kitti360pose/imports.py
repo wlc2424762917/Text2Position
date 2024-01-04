@@ -22,7 +22,9 @@ class Object3d:
         self.xyz = xyz
         self.rgb = rgb
         self.label = label
-        self.feature_2d = None
+        self.image_2d = []
+        self.feature_2d = []
+        self.feature_2d_text = None
         # self.closest_point = None # Set in get_closest_point() for cell-object. CARE: may now be "incorrect" since multiple poses can use this object/cells
         # self.center = None # TODO, for SG-Matching: ok to just input center instead of closest-point? or better to directly input xyz (care that PN++ knowns about coords)
 

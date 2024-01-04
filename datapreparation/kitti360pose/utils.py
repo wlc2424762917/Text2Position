@@ -217,7 +217,7 @@ import numpy as np
 import torch
 
 
-def initialize_sam_model(device, sam_model_type='vit_h', sam_checkpoint='./checkpoints/sam_vit_h_4b8939.pth'):
+def initialize_sam_model(device, sam_model_type='vit_h', sam_checkpoint='/home/wanglichao/Text2Position/checkpoints/sam_vit_h_4b8939.pth'):
     sam = sam_model_registry[sam_model_type](checkpoint=sam_checkpoint)
     sam.to(device)
     predictor_sam = SamPredictor(sam)
@@ -249,12 +249,11 @@ def mask2box_multi_level(mask: torch.Tensor, level, expansion_ratio):
 def run_sam(image_size, num_random_rounds, num_selected_points, point_coords, predictor_sam):
     best_score = 0
     best_mask = np.zeros_like(image_size, dtype=bool)
-
     point_coords_new = np.zeros_like(point_coords)
 
     # (x, y) --> (y, x)
-    point_coords_new[:, 0] = point_coords[:, 1]
-    point_coords_new[:, 1] = point_coords[:, 0]
+    point_coords_new[:, 0] = point_coords[:, 0]
+    point_coords_new[:, 1] = point_coords[:, 1]
 
     # Get only a random subsample of them for num_random_rounds times and choose the mask with highest confidence score
     for i in range(num_random_rounds):

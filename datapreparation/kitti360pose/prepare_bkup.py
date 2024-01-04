@@ -12,7 +12,7 @@ import numpy as np
 import pickle
 import sys
 import time
-
+from PIL import Image
 from scipy.spatial.distance import cdist
 
 import open3d
@@ -47,31 +47,7 @@ from datapreparation.kitti360pose.descriptions import (
     ground_pose_to_best_cell,
 )
 from datapreparation.args import parse_arguments
-from PIL import Image
 
-CLASS_TO_LABEL = {
-    "building": 11,
-    "pole": 17,
-    "traffic light": 19,
-    "traffic sign": 20,
-    "garage": 34,
-    "stop": 36,
-    "smallpole": 37,
-    "lamp": 38,
-    "trash bin": 39,
-    "vending machine": 40,
-    "box": 41,
-    "road": 7,
-    "sidewalk": 8,
-    "parking": 9,
-    "wall": 12,
-    "fence": 13,
-    "guard rail": 14,
-    "bridge": 15,
-    "tunnel": 16,
-    "vegetation": 21,
-    "terrain": 22,
-}
 
 def show(img_or_name, img=None):
     if img is not None:
@@ -148,32 +124,19 @@ def project_3d_2d_feature(kitti360Path, sequence, objects, num_random_rounds=10,
             raise RuntimeError('Invalid Camera ID! fisheye not available.')
         # loop over frames
         for frame in camera.frames:
+            image_crops = []
             if cam_id == 0 or cam_id == 1:
-                # Check if the semantic mask file exists
-                if os.path.exists(os.path.join(kitti360Path, 'data_2d_semantics', sequence, 'image_%02d' % cam_id,
-                                               'semantic',
-                                               '%010d.png' % frame)):
-                    image_file = os.path.join(kitti360Path, 'data_2d_raw', sequence, 'image_%02d' % cam_id, 'data_rect',
-                                              '%010d.png' % frame)
-                    sem_mask_file = os.path.join(kitti360Path, 'data_2d_semantics', sequence, 'image_%02d' % cam_id,
-                                                 'semantic',
-                                                 '%010d.png' % frame)
-                else:
-                    print('Missing %s in semantics' % frame)
-                    continue
-
+                image_file = os.path.join(kitti360Path, 'data_2d_raw', sequence, 'image_%02d' % cam_id, 'data_rect',
+                                          '%010d.png' % frame)
             else:
                 raise RuntimeError('Invalid Camera ID!')
             if not os.path.isfile(image_file):
                 print('Missing %s ...' % image_file)
                 continue
             print("processing frame:", image_file)
-
             image2D = Image.open(image_file).convert("RGB")
             np_image2D = np.array(image2D)  # np_image2D is (y, x, 3) height, width, channels
-
-            sem_mask2D = Image.open(sem_mask_file)
-            np_sem_mask2D = np.array(sem_mask2D)
+            plt.imshow(np_image2D[:, :, ::-1])
 
             depth_buffer = np.full(np_image2D.shape[0:2], np.inf)
             label3DSemanticsPaths = os.path.join(kitti360Path, 'data_3d_semantics', sequence, "static")
@@ -191,8 +154,8 @@ def project_3d_2d_feature(kitti360Path, sequence, objects, num_random_rounds=10,
 
             # loop over objects
             for idx_obj, obj in enumerate(objects):
-                image_crops = []
                 # print(obj.label, len(obj.xyz))
+                print(obj.label, len(obj.xyz))
                 uv, d = camera.project_vertices(obj.xyz, frame)
                 mask = np.logical_and(np.logical_and(d > 0, uv[0] > 0), uv[1] > 0)
                 mask = np.logical_and(np.logical_and(mask, uv[0] < np_image2D.shape[1]), uv[1] < np_image2D.shape[0])
@@ -201,12 +164,11 @@ def project_3d_2d_feature(kitti360Path, sequence, objects, num_random_rounds=10,
 
                 # Combine the UV coordinates and color data for clustering
                 combined_data = np.column_stack((uv[0][mask], uv[1][mask]))
-                if combined_data.shape[0] > 10:
-                    print(obj.label, len(uv[0][mask]))
+                if combined_data.shape[0] > 100:
                     # Normalize the combined data
                     # Apply DBSCAN
                     # The 'eps' and 'min_samples' parameters are crucial and should be tuned based on the specifics of the dataset
-                    dbscan = DBSCAN(eps=8, min_samples=10)
+                    dbscan = DBSCAN(eps=10, min_samples=80)
                     clusters = dbscan.fit_predict(combined_data)
 
                     # Determine the densest cluster
@@ -215,10 +177,7 @@ def project_3d_2d_feature(kitti360Path, sequence, objects, num_random_rounds=10,
                     if -1 in cluster_counts:
                         del cluster_counts[-1]
                     # 检查是否有有效的聚类
-                    if len(cluster_counts) <= 0:
-                        print("No valid clusters found")
-                        densest_cluster_id = None
-                    else:
+                    if len(cluster_counts) > 0:
                         # 获取数量最多的聚类的 ID
                         densest_cluster_id = cluster_counts.most_common(1)[0][0]
 
@@ -229,85 +188,59 @@ def project_3d_2d_feature(kitti360Path, sequence, objects, num_random_rounds=10,
                         densest_cluster_points_uv = (
                             uv[0][mask][densest_cluster_indices], uv[1][mask][densest_cluster_indices])
 
-                        # 计算densest_cluster_points_uv在semantic mask中的label和instance label有多少一致
-                        obj_sem_id = CLASS_TO_LABEL[obj.label]
-                        sem_matched = np_sem_mask2D[
-                                          densest_cluster_points_uv[1], densest_cluster_points_uv[0]] == obj_sem_id
-                        num_sem_matched = np.sum(sem_matched)
-                        num_total = len(sem_matched)
+                        plt.figure()  # 创建一个新的图形
+                        plt.imshow(np_image2D[:, :, ::-1])  # Adjust if necessary for color channels
+                        plt.plot(densest_cluster_points_uv[0], densest_cluster_points_uv[1], 'r.', markersize=0.8)
+                        plt.savefig(os.path.join(out_folder, f"cluster{sequence}_{obj.id}_{obj.label}.png"))
 
-                        if num_sem_matched / num_total < 0.8:
-                            print(
-                                "The semantic labels of the densest cluster points are not consistent with the object label")
-                        else:
-                            print(
-                                "The semantic labels of the densest cluster points are mostly consistent with the object label")
+                        predictor_sam = initialize_sam_model(device='cuda')
+                        predictor_sam.set_image(np_image2D)
+                        best_mask = run_sam(image_size=np_image2D,
+                                            num_random_rounds=num_random_rounds,
+                                            num_selected_points=num_selected_points,
+                                            point_coords=np.array([uv[0][mask][densest_cluster_indices], uv[1][mask][densest_cluster_indices]]).T,
+                                            predictor_sam=predictor_sam, )
 
-                            plt.figure()  # 创建一个新的图形
-                            plt.imshow(np_image2D)  # Adjust if necessary for color channels
-                            plt.plot(densest_cluster_points_uv[0], densest_cluster_points_uv[1], 'r.', markersize=0.8)
-                            plt.savefig(os.path.join(out_folder, f"cluster{sequence}_{obj.id}_{obj.label}.png"))
+                        # MULTI LEVEL CROPS
+                        for level in range(num_levels):
+                            # mask out bg
+                            bg_rgb_color = (0.48145466 * 255.0, 0.4578275 * 255.0, 0.40821073 * 255.0)
+                            best_mask_boolean = best_mask.astype(bool)
+                            np_image2D_mask = np_image2D.copy()
+                            np_image2D_mask[~best_mask_boolean] = bg_rgb_color
+                            image_2D_masked = Image.fromarray(np_image2D_mask.astype('uint8'))
 
+                            # get the bbox and corresponding crops
+                            x1, y1, x2, y2 = mask2box_multi_level(torch.from_numpy(best_mask), level,
+                                                                  multi_level_expansion_ratio)
+                            cropped_img =image_2D_masked.crop((x1, y1, x2, y2))
+                            # cropped_img = image2D.crop((x1, y1, x2, y2))
 
+                            if (save_crops):
+                                cropped_img.save(os.path.join(out_folder, f"crop{sequence}_{obj.id}_{obj.label}_{level}.png"))
 
-                            predictor_sam = initialize_sam_model(device='cuda')
-                            predictor_sam.set_image(np_image2D)
-                            best_mask = run_sam(image_size=np_image2D,
-                                                num_random_rounds=num_random_rounds,
-                                                num_selected_points=num_selected_points,
-                                                point_coords=np.array([densest_cluster_points_uv[0], densest_cluster_points_uv[1]]).T,
-                                                predictor_sam=predictor_sam, )
+                            # Currently compute the CLIP feature using the standard clip model
+                            # TODO: using mask-adapted CLIP
+                            cropped_img_processed = clip_preprocess(cropped_img)
+                            image_crops.append(cropped_img_processed)
 
-                            if sum(best_mask.flatten()) > 0:
-                                # MULTI LEVEL CROPS
-                                for level in range(num_levels):
-                                    # mask out bg
-                                    bg_rgb_color = (0.48145466 * 255.0, 0.4578275 * 255.0, 0.40821073 * 255.0)
-                                    best_mask_boolean = best_mask.astype(bool)
-                                    np_image2D_mask = np_image2D.copy()
-                                    np_image2D_mask[~best_mask_boolean] = bg_rgb_color
-                                    image_2D_masked = Image.fromarray(np_image2D_mask.astype('uint8'))
+                    else:
+                        # 没有找到有效聚类
+                        print("No valid clusters found")
+                        densest_cluster_id = None
 
-                                    # get the bbox and corresponding crops
-                                    x1, y1, x2, y2 = mask2box_multi_level(torch.from_numpy(best_mask), level,
-                                                                          multi_level_expansion_ratio)
-                                    # cropped_img =image_2D_masked.crop((x1, y1, x2, y2))
-                                    cropped_img = image2D.crop((x1, y1, x2, y2))
-                                    if cropped_img.size[0] < 60 and cropped_img.size[1] < 60:
-                                        print("crop too small")
-                                        break
+        if (len(image_crops) > 0):
+            image_input = torch.tensor(np.stack(image_crops))
+            with torch.no_grad():
+                image_features = clip_model.encode_image(image_input.to('cuda')).float()
+                image_features /= image_features.norm(dim=-1, keepdim=True)  # normalize
 
-                                    if (save_crops):
-                                        cropped_img.save(os.path.join(out_folder, f"crop{sequence}_{obj.id}_{obj.label}_{level}.png"))
+            # instances_clip_features[idx_obj] = image_features.mean(axis=0).cpu().numpy()
+            obj.image_2d = image_crops
+            obj.feature_2d = image_features.mean(axis=0).cpu().numpy()
+            objects_with_2D_feature_num +=1
 
-                                    # Currently compute the CLIP feature using the standard clip model
-                                    # TODO: using mask-adapted CLIP
-                                    cropped_img_processed = clip_preprocess(cropped_img)
-                                    image_crops.append(cropped_img_processed)
-
-                if (len(image_crops) > 0):
-                    image_input = torch.tensor(np.stack(image_crops))  # (num_crops, 3, 224, 224)
-                    with torch.no_grad():
-                        image_features = clip_model.encode_image(image_input.to('cuda')).float()  # (num_crops, 512)
-                        image_features /= image_features.norm(dim=-1, keepdim=True)  # normalize, (num_crops, 512)
-
-                    # instances_clip_features[idx_obj] = image_features.mean(axis=0).cpu().numpy()
-                    obj.image_2d.append(image_crops)
-                    obj.feature_2d.append(image_features.mean(axis=0).cpu().numpy())
-                    # obj.feature_2d_text = clip.tokenize([obj.label]).to('cuda')
-                    objects_with_2D_feature_num +=1
-
-    for idx_obj, obj in enumerate(objects):
-        feature_2d_text = clip_model.tokenize([obj.label.to('cuda')]).float()
-        obj.feature_2d_text /= obj.feature_2d_text.norm(dim=-1, keepdim=True)  # normalize
-
-        if len(obj.feature_2d) == 0:
-            obj.feature_2d = obj.feature_2d_text
-        else:
-            obj.feature_2d = np.stack(obj.feature_2d)
-            obj.feature_2d = obj.feature_2d.mean(axis=0)
-
-    return objects_with_2D_feature_num, objects_num
+        return objects_with_2D_feature_num, objects_num
 
 
 def gather_objects(path_input, folder_name):
@@ -643,6 +576,7 @@ if __name__ == "__main__":
     # 2013_05_28_drive_0003_sync
     args = parse_arguments()
     print(str(args).replace(",", "\n"))
+    print()
 
     cell_locations, cell_location_objects = create_locations(
         args.path_in,

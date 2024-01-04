@@ -38,9 +38,6 @@ class ObjectEncoder(torch.nn.Module):
         self.known_colors["<unk>"] = 0
         self.color_embedding = nn.Embedding(len(self.known_colors), embed_dim, padding_idx=0)
 
-        # point_num embedding
-        self.num_encoder = get_mlp([1, 64, embed_dim])
-
         self.pos_encoder = get_mlp([3, 64, embed_dim])  # OPTION: pos_encoder layers
         self.color_encoder = get_mlp([3, 64, embed_dim])  # OPTION: color_encoder layers
 
@@ -64,8 +61,6 @@ class ObjectEncoder(torch.nn.Module):
         if "class_embed" in args and args.class_embed:
             merged_embedding_dim += embed_dim
         if "color_embed" in args and args.color_embed:
-            merged_embedding_dim += embed_dim
-        if "num_embed" in args and args.num_embed:
             merged_embedding_dim += embed_dim
         self.mlp_merge = get_mlp([merged_embedding_dim, embed_dim])
 
@@ -168,16 +163,6 @@ class ObjectEncoder(torch.nn.Module):
                 torch.tensor(positions, dtype=torch.float, device=self.get_device())
             )
             embeddings.append(F.normalize(pos_embedding, dim=-1))
-
-        if "num_points" in self.args.use_features:
-            num_points = []
-            for objects_sample in objects:
-                num_points.extend([obj.xyz.shape[0] for obj in objects_sample])
-            num_points = np.array(num_points)
-            num_points_embedding = self.num_encoder(
-                torch.tensor(num_points, dtype=torch.float, device=self.get_device())
-            )
-            embeddings.append(F.normalize(num_points_embedding, dim=-1))
 
         if len(embeddings) > 1:
             embeddings = self.mlp_merge(torch.cat(embeddings, dim=-1))

@@ -30,30 +30,6 @@ from datapreparation.kitti360pose.imports import Object3d, Cell, Pose
 from datapreparation.kitti360pose.utils import *
 from PIL import Image
 
-CLASS_TO_LABEL = {
-    "building": 11,
-    "pole": 17,
-    "traffic light": 19,
-    "traffic sign": 20,
-    "garage": 34,
-    "stop": 36,
-    "smallpole": 37,
-    "lamp": 38,
-    "trash bin": 39,
-    "vending machine": 40,
-    "box": 41,
-    "road": 7,
-    "sidewalk": 8,
-    "parking": 9,
-    "wall": 12,
-    "fence": 13,
-    "guard rail": 14,
-    "bridge": 15,
-    "tunnel": 16,
-    "vegetation": 21,
-    "terrain": 22,
-}
-
 
 def checkfile(filename):
     if not os.path.isfile(filename):
@@ -336,20 +312,16 @@ if __name__ == "__main__":
     for frame in camera.frames:
         # perspective
         if cam_id == 0 or cam_id == 1:
-
             # Check if the semantic mask file exists
             if os.path.exists(os.path.join(kitti360Path, 'data_2d_semantics', sequence, 'image_%02d' % cam_id,
-                                         'semantic',
+                                         'data_rect',
                                          '%010d.png' % frame)):
 
                 image_file = os.path.join(kitti360Path, 'data_2d_raw', sequence, 'image_%02d' % cam_id, 'data_rect',
                                           '%010d.png' % frame)
 
-                sem_mask_file = os.path.join(kitti360Path, 'data_2d_semantics', sequence, 'image_%02d' % cam_id, 'semantic',
+                sem_mask_file = os.path.join(kitti360Path, 'data_2d_semantics', sequence, 'image_%02d' % cam_id, 'data_rect',
                                           '%010d.png' % frame)
-            else:
-                print('Missing %s in semantics' %  frame)
-                continue
         # fisheye
         elif cam_id == 2 or cam_id == 3:
             image_file = os.path.join(kitti360Path, 'data_2d_raw', sequence, 'image_%02d' % cam_id, 'data_rgb',
@@ -506,13 +478,13 @@ if __name__ == "__main__":
                 # print(uv[0][mask].shape, uv[1][mask].shape)
                 # print(np.array([uv[0][mask], uv[1][mask]]).shape)
                 # plt.plot(uv[0][mask], uv[1][mask], 'r.', markersize=0.3)
-                if combined_data.shape[0] > 25:
+                if combined_data.shape[0] > 180:
                     print(combined_data.shape)
                     # Normalize the combined data
                     # It's important to scale the color information to be on a similar numerical range as the UV coordinates
                     # Apply DBSCAN
                     # The 'eps' and 'min_samples' parameters are crucial and should be tuned based on the specifics of the dataset
-                    dbscan = DBSCAN(eps=8, min_samples=10)
+                    dbscan = DBSCAN(eps=10, min_samples=120)
                     clusters = dbscan.fit_predict(combined_data)
 
                     # Determine the densest cluster
@@ -521,10 +493,7 @@ if __name__ == "__main__":
                     if -1 in cluster_counts:
                         del cluster_counts[-1]
                     # 检查是否有有效的聚类
-                    if len(cluster_counts) <= 0:
-                        print("No valid clusters found")
-                        densest_cluster_id = None
-                    else:
+                    if len(cluster_counts) > 0:
                         # 获取数量最多的聚类的 ID
                         densest_cluster_id = cluster_counts.most_common(1)[0][0]
 
@@ -550,47 +519,32 @@ if __name__ == "__main__":
                         plt.plot(densest_cluster_points_uv[0], densest_cluster_points_uv[1], 'r.', markersize=0.8)
                         plt.show()
 
-                        plt.figure()  # 创建一个新的图形
-                        plt.imshow(sem_mask2D)  # Adjust if necessary for color channels
-                        plt.plot(densest_cluster_points_uv[0], densest_cluster_points_uv[1], 'r.', markersize=0.8)
-                        plt.show()
-
-                        # 计算densest_cluster_points_uv在semantic mask中的label和instance label有多少一致
-                        obj_sem_id = CLASS_TO_LABEL[obj.label]
-                        sem_matched = np_sem_mask2D[densest_cluster_points_uv[1], densest_cluster_points_uv[0]] == obj_sem_id
-                        num_sem_matched = np.sum(sem_matched)
-                        num_total = len(sem_matched)
-                        if num_sem_matched / num_total <= 0.8:
-                            print("The semantic labels of the densest cluster points are mostly inconsistent with the object label")
+                        # If you want to sample points from the densest cluster, you can use:
+                        num_points_to_sample = 5  # or 10, as needed
+                        if len(densest_cluster_indices) > num_points_to_sample:
+                            sampled_indices = np.random.choice(densest_cluster_indices, size=num_points_to_sample,
+                                                               replace=False)
                         else:
-                            print("The semantic labels of the densest cluster points are mostly consistent with the object label")
-
-                            # If you want to sample points from the densest cluster, you can use:
-                            num_points_to_sample = 5  # or 10, as needed
-                            if len(densest_cluster_indices) > num_points_to_sample:
-                                sampled_indices = np.random.choice(densest_cluster_indices, size=num_points_to_sample,
-                                                                   replace=False)
-                            else:
-                                sampled_indices = densest_cluster_indices
-                                sampled_indices = densest_cluster_indices
+                            sampled_indices = densest_cluster_indices
+                            sampled_indices = densest_cluster_indices
+                    else:
+                        # 没有找到有效聚类
+                        print("No valid clusters found")
+                        densest_cluster_id = None
 
 
-                            # print(uv[0][mask].shape, uv[1][mask].shape)
-                            # print(np.array([uv[0][mask], uv[1][mask]]).shape)
-                            # plt.plot(uv[0][mask], uv[1][mask], 'r.', markersize=0.3)
-
-                            if (sum(mask) > 0):
-                                predictor_sam = initialize_sam_model(device='cuda')
-                                predictor_sam.set_image(np_image2D)
-                                best_mask = run_sam(image_size=np_image2D,
-                                                    num_random_rounds=5,
-                                                    num_selected_points=5,
-                                                    point_coords=np.array([uv[0][mask][densest_cluster_indices], uv[1][mask][densest_cluster_indices]]).T,
-                                                    predictor_sam=predictor_sam,)
-
-                                plt.figure()
-                                plt.imshow(best_mask, alpha=0.5)
-                                plt.show()
+                # print(uv[0][mask].shape, uv[1][mask].shape)
+                # print(np.array([uv[0][mask], uv[1][mask]]).shape)
+                # plt.plot(uv[0][mask], uv[1][mask], 'r.', markersize=0.3)
+                if (sum(mask) > 0):
+                    predictor_sam = initialize_sam_model(device='cuda')
+                    predictor_sam.set_image(np_image2D)
+                    best_mask = run_sam(image_size=np_image2D,
+                                        num_random_rounds=5,
+                                        num_selected_points=5,
+                                        point_coords=np.array([uv[0][mask], uv[1][mask]]).T,
+                                        predictor_sam=predictor_sam, )
+                   #  plt.imshow(best_mask, alpha=0.5)
 
         else:
             def load_points(filepath):
