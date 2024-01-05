@@ -128,7 +128,6 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
     for batch in dataloader:
         # text_enc = model.encode_text(batch["texts"])
         text_enc, text_clip_feature = model.encode_text_submap(batch["texts_submap"])
-        text_enc_obj, text_clip_feature_obj = model.encode_text_objects(batch["texts_objects"])
         batch_size = len(text_enc)
 
         text_encodings[index_offset : index_offset + batch_size, :] = (
@@ -143,8 +142,6 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
     for batch in cells_dataloader:
         cell_enc = model.encode_objects(batch["objects"], batch["object_points"], args.use_edge_conv)
         batch_size = len(cell_enc)
-
-        cell_objs_2D_clip_features = batch["feature_2d"]
 
         cell_encodings[index_offset : index_offset + batch_size, :] = (
             cell_enc.cpu().detach().numpy()

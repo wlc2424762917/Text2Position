@@ -163,7 +163,7 @@ class Clip_LanguageEncoder_TransformerFuser(nn.Module):
             all_sentences = [sentence.strip() for description in descriptions for sentence in description.split('.')
                              if sentence.strip()]
             # Tokenize all sentences in one go
-            all_text_inputs = torch.cat([clip.tokenize(sentence).to(self.device) for sentence in all_sentences])
+            all_text_inputs = torch.cat([clip.tokenize(sentence).to(self.device) for sentence in all_sentences])  # [B*N, 77]
             # Encode all sentences in one go
             all_text_features = self.model.encode_text(all_text_inputs)  # [B*N, 512]
             # Aggregate features for each description

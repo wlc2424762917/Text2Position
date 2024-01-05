@@ -67,17 +67,24 @@ class CellRetrievalNetwork(torch.nn.Module):
         if args.language_encoder == "CLIP_text":
             self.language_encoder = Clip_LanguageEncoder(clip_version="ViT-B/32")
             self.language_linear = nn.Linear(512, embed_dim)
-            self.language_linear_object = nn.Linear(512, embed_dim)
+            # self.language_linear_object = nn.Linear(512, embed_dim)
             self.language_linear_submap = nn.Linear(512, embed_dim)
 
         elif args.language_encoder == "CLIP_text_transformer":
             self.language_encoder = Clip_LanguageEncoder_TransformerFuser(clip_version="ViT-B/32")
             self.language_linear = nn.Linear(512, embed_dim)
-            self.language_linear_object = nn.Linear(512, embed_dim)
+            # self.language_linear_object = nn.Linear(512, embed_dim)
             self.language_linear_submap = nn.Linear(512, embed_dim)
 
         else:
             self.language_encoder = LanguageEncoder(known_words, embed_dim, bi_dir=True)
+
+        """
+        Obj Textual path 
+        """
+        ## TODO: add a new path for object and text
+        self.obj_language_encoder = Clip_LanguageEncoder_TransformerFuser(clip_version="ViT-B/32")
+
 
         print(
             f"CellRetrievalNetwork, class embed {args.class_embed}, color embed {args.color_embed}, variation: {self.variation}, dim: {embed_dim}, features: {self.use_features}"
@@ -101,18 +108,8 @@ class CellRetrievalNetwork(torch.nn.Module):
         return description_encodings
 
     def encode_text_objects(self, descriptions):
-        batch_size = len(descriptions)
-        # print(descriptions[0])
-        # print(descriptions)
-        # quit()
-        if self.args.language_encoder == "CLIP_text" or self.args.language_encoder == "CLIP_text_transformer":
-            description_clip_features = self.language_encoder(descriptions)
-            description_encodings = self.language_linear_object(description_clip_features)
-            description_encodings, description_clip_features = F.normalize(description_encodings), F.normalize(description_clip_features)
-            return description_encodings, description_clip_features
-        else:
-            description_encodings = self.language_encoder(descriptions)  # [B, DIM]
-            description_encodings = F.normalize(description_encodings)
+        description_encodings = self.obj_language_encoder(descriptions)  # [B, DIM]
+        description_encodings = F.normalize(description_encodings)
         return description_encodings, None
 
     def encode_text_submap(self, descriptions):
