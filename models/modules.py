@@ -206,7 +206,7 @@ class MaxPoolMultiHeadSelfAttention(nn.Module):
         padded_embeddings = torch.zeros(len(batch.unique()), max_len, embeddings.size(-1))
         mask = torch.ones(len(batch.unique()), max_len, max_len)
 
-        # 对每个批次添加填充并创建掩码
+        # 对每个批次添加填充并创建掩码, (B, max_len, D)
         for i, b in enumerate(batch.unique()):
             # print(batch == b)
             # print(embeddings[batch == b].shape)
@@ -222,10 +222,10 @@ class MaxPoolMultiHeadSelfAttention(nn.Module):
 
         # 应用多头自注意力机制
         attn_output, _ = self.multihead_attn(padded_embeddings.to(self.device), padded_embeddings.to(self.device), padded_embeddings.to(self.device), attn_mask=mask.to(self.device))
-        attn_output = attn_output.transpose(0, 1)
+        attn_output = attn_output.transpose(0, 1)  # (B, max_len, D)
 
         # 应用最大池化
-        maxpooled_output = F.max_pool1d(attn_output.transpose(1, 2), kernel_size=attn_output.size(1))
+        maxpooled_output = F.max_pool1d(attn_output.transpose(1, 2), kernel_size=attn_output.size(1))  # (B, D, 1)
 
         return maxpooled_output.squeeze()
 

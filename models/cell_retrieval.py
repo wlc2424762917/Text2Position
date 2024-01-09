@@ -34,6 +34,8 @@ class CellRetrievalNetwork(torch.nn.Module):
         self.embed_dim = args.embed_dim
         self.use_features = args.use_features
         self.variation = args.variation
+        self.use_edge_conv = args.use_edge_conv
+        self.only_clip_semantic_feature = args.only_clip_semantic_feature
         self.args = args
         embed_dim = self.embed_dim
 
@@ -56,10 +58,14 @@ class CellRetrievalNetwork(torch.nn.Module):
                     get_mlp([2 * embed_dim, embed_dim, embed_dim], add_batchnorm=True), k=8, aggr="mean"
                 )  # Originally: k=4
                 self.lin = get_mlp([embed_dim, embed_dim, embed_dim])
+        elif args.only_clip_semantic_feature:
+            self.mlp_pos_num = get_mlp([2 * embed_dim, embed_dim])
+            self.attn_pooling = MaxPoolMultiHeadSelfAttention(embed_dim, num_heads=8)
         else:  # use attention + pooling
             self.attn_pooling = MaxPoolMultiHeadSelfAttention(embed_dim, num_heads=8)
 
         self.object_encoder = ObjectEncoder(embed_dim, known_classes, known_colors, args)
+
 
         """
         Textual path
@@ -124,12 +130,11 @@ class CellRetrievalNetwork(torch.nn.Module):
             description_encodings = F.normalize(description_encodings)
         return description_encodings, None
 
-    def encode_objects(self, objects, object_points, use_edge_conv):
+    def encode_objects(self, objects, object_points):
         """
         Process the objects in a flattened way to allow for the processing of batches with uneven sample counts
         """
         batch_size = len(objects)
-
         class_indices = []
         batch = []  # Batch tensor to send into PyG
         for i_batch, objects_sample in enumerate(objects):
@@ -139,10 +144,10 @@ class CellRetrievalNetwork(torch.nn.Module):
                 batch.append(i_batch)
         batch = torch.tensor(batch, dtype=torch.long, device=self.device)
         # TODO: Norm embeddings or not?
-        embeddings, class_embeddings, color_embeddings = self.object_encoder(objects, object_points)
+        embeddings, class_embeddings, color_embeddings, pos_embeddings, num_points_embeddings = self.object_encoder(objects, object_points)
         # print("embeddings", embeddings.shape, "class_embeddings", class_embeddings.shape, "color_embeddings", color_embeddings.shape)
         embeddings = F.normalize(embeddings, dim=-1)  # OPTION: normalize, this is new
-        if use_edge_conv:
+        if self.use_edge_conv:
             if self.variation == 0:
                 x = self.graph1(embeddings, batch)
                 x = gnn.global_max_pool(x, batch)
@@ -151,10 +156,14 @@ class CellRetrievalNetwork(torch.nn.Module):
                 x = self.graph1(embeddings, batch)
                 x = gnn.global_mean_pool(x, batch)
                 x = self.lin(x)
+        elif self.only_clip_semantic_feature:
+            x = [pos_embeddings, num_points_embeddings]
+            x = torch.cat(x, dim=-1)  # [B, 2*DIM]
+            x = self.mlp_pos_num(x)
+            x = self.attn_pooling(x, batch)
         else:
             embeddings = embeddings.to(self.device)
             x = self.attn_pooling(embeddings, batch)
-
         x = F.normalize(x)
         # print("x", x.shape)
         return x

@@ -184,7 +184,7 @@ class ObjectEncoder(torch.nn.Module):
         else:
             embeddings = embeddings[0]
 
-        return embeddings, class_embedding, color_embedding
+        return embeddings, class_embedding, color_embedding, pos_embedding, num_points_embedding
 
     @property
     def device(self):

@@ -223,7 +223,7 @@ def project_3d_2d_feature(kitti360Path, sequence, objects, num_random_rounds=10,
                         # 获取数量最多的聚类的 ID
                         densest_cluster_id = cluster_counts.most_common(1)[0][0]
 
-                        # print("Number of points in the densest cluster:", cluster_counts[densest_cluster_id])
+                        print("Number of points in the densest cluster:", cluster_counts[densest_cluster_id])
 
                         # Get the indices of the points in the densest cluster
                         densest_cluster_indices = np.where(clusters == densest_cluster_id)[0]

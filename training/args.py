@@ -66,6 +66,7 @@ def parse_arguments():
 
     # PyG
     parser.add_argument("--use_edge_conv", action="store_true")
+    parser.add_argument("--only_clip_semantic_feature", action="store_true")
 
     # language encoder
     parser.add_argument("--language_encoder", type=str, default="LSTM")

@@ -141,7 +141,7 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
     # Encode the database side
     index_offset = 0
     for batch in cells_dataloader:
-        cell_enc = model.encode_objects(batch["objects"], batch["object_points"], args.use_edge_conv)
+        cell_enc = model.encode_objects(batch["objects"], batch["object_points"])
         batch_size = len(cell_enc)
 
         cell_objs_2D_clip_features = batch["feature_2d"]
