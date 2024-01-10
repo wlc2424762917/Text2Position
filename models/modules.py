@@ -274,6 +274,7 @@ class RelationMultiHeadSelfAttention(nn.Module):
         self.relations = nn.Linear(self.head_dim, self.head_dim, bias=False)
 
         self.fc_out = nn.Linear(heads * self.head_dim, embed_size)
+        self.fc_fuse = nn.Linear(2 * self.head_dim, self.head_dim)
 
     def forward(self, values, keys, query, mask, relation):
         N = query.shape[0]
@@ -297,8 +298,15 @@ class RelationMultiHeadSelfAttention(nn.Module):
         # - 然后与 relation (nhqkd) 相乘
         # energy = torch.einsum('nqhd,nkhd,nhqkd->nhqk', queries, keys, relation)
 
+        # - Q (nqhd) 和 K (nkhd) 的点积
         energy = torch.einsum('nqhd,nkhd->nhqkd', queries, keys)
-        energy = torch.einsum('nhqkd,nhqkd->nhqk', energy, relation)
+        # energy = torch.einsum('nhqkd,nhqkd->nhqk', energy, relation)
+        # concat relation and energy on the last dim (embed_dim)
+        energy = torch.cat((energy, relation), dim=-1)
+        # 通过一个mlp
+        energy = self.fc_fuse(energy)
+        # 将d维sum到一起
+        energy = energy.sum(dim=-1, keepdim=True)
 
         if mask is not None:
             energy = energy.masked_fill(mask == 1, float("-1e20"))
@@ -338,8 +346,10 @@ class MaxPoolRelationMultiHeadSelfAttention(nn.Module):
             mask[i, :batch_embeddings.size(0), :batch_embeddings.size(0)] = 0  # 0表示有效值，1表示无效值
             # relation embedding padding
             relation_len = relation[i].shape[0]
-            assert relation_len == sum(batch == b)
-            padded_relation[i, :relation_len, :relation_len] = relation[i]
+            # assert relation_len == sum(batch == b)
+            # padded_relation[i, :relation_len, :relation_len] = relation[i]
+            assert relation_len == max_len
+            padded_relation[i] = relation[i]
 
         # 调整形状以适应多头注意力模块
         padded_embeddings = padded_embeddings

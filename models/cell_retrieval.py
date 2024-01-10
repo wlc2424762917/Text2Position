@@ -36,6 +36,7 @@ class CellRetrievalNetwork(torch.nn.Module):
         self.variation = args.variation
         self.use_edge_conv = args.use_edge_conv
         self.only_clip_semantic_feature = args.only_clip_semantic_feature
+        self.use_relation_transformer = args.use_relation_transformer
         self.args = args
         embed_dim = self.embed_dim
 

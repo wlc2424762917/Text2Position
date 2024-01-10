@@ -181,19 +181,27 @@ class ObjectEncoder(torch.nn.Module):
             embeddings.append(F.normalize(num_points_embedding, dim=-1))
 
         relation_embedding = None
-        if "relation" in self.args.use_features:
+        if self.args.use_relation_transformer:
             # get relation matrix
             relations = []
             for i_batch, objects_sample in enumerate(objects):
-                centers_i = torch.tensor([obj.get_center()[0:2] for obj in objects_sample], dtype=torch.float, device=self.get_device())
-                centers_j = torch.tensor([obj.get_center()[0:2] for obj in objects_sample], dtype=torch.float, device=self.get_device())
+                centers_i = torch.tensor(np.array([obj.get_center()[0:2] for obj in objects_sample]), dtype=torch.float, device=self.get_device())
+                centers_j = torch.tensor(np.array([obj.get_center()[0:2] for obj in objects_sample]), dtype=torch.float, device=self.get_device())
                 # Broadcasting the subtraction operation over the two tensors.
                 # The unsqueeze method is used to add the necessary dimension for broadcasting.
                 relation_matrix = centers_i.unsqueeze(1) - centers_j.unsqueeze(0)  # [num_obj, num_obj, 2] tensor
                 relations.append(relation_matrix)
             # pad relations to the same size (the max number of objects in a batch)
-            # relations = torch.nn.utils.rnn.pad_sequence(relations, batch_first=True, padding_value=0)  # [batch_size, num_obj, num_obj, 2]
+            max_num_obj = max([len(objs) for objs in objects])
+            for i, relation in enumerate(relations):
+                relations[i] = F.pad(relation, (0, 0, 0, max_num_obj - relation.shape[0], 0, max_num_obj - relation.shape[0]))
+            relations = torch.stack(relations, dim=0)
+
+            B, max_n, _, _ = relations.shape
+            relations = relations.reshape(B*max_n*max_n, 2)
             relation_embedding = self.relation_encoder(relations)
+            relation_embedding = relation_embedding.reshape(B, max_n, max_n, self.embed_dim)
+            # print("relation_embedding", relation_embedding.shape)
 
         if len(embeddings) > 1:
             embeddings = self.mlp_merge(torch.cat(embeddings, dim=-1))

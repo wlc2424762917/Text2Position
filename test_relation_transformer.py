@@ -20,6 +20,7 @@ class RelationMultiHeadSelfAttention(nn.Module):
         self.relations = nn.Linear(self.head_dim, self.head_dim, bias=False)
 
         self.fc_out = nn.Linear(heads * self.head_dim, embed_size)
+        self.fc_fuse = nn.Linear(2 * self.head_dim, self.head_dim)
 
     def forward(self, values, keys, query, mask, relation):
         N = query.shape[0]
@@ -43,8 +44,20 @@ class RelationMultiHeadSelfAttention(nn.Module):
         # - 然后与 relation (nhqkd) 相乘
         # energy = torch.einsum('nqhd,nkhd,nhqkd->nhqk', queries, keys, relation)
 
+        # energy = torch.einsum('nqhd,nkhd->nhqkd', queries, keys)
+        # energy = torch.einsum('nhqkd,nhqkd->nhqk', energy, relation)
+        # - Q (nqhd) 和 K (nkhd) 的点积
         energy = torch.einsum('nqhd,nkhd->nhqkd', queries, keys)
-        energy = torch.einsum('nhqkd,nhqkd->nhqk', energy, relation)
+        # energy = torch.einsum('nhqkd,nhqkd->nhqk', energy, relation)
+        # concat relation and energy
+        print(energy.shape)
+        energy = torch.cat((energy, relation), dim=-1)
+        print(energy.shape)
+        # 通过一个mlp
+        energy = self.fc_fuse(energy)
+        print(energy.shape)
+        # 将d维sum到一起
+        energy = energy.sum(dim=-1, keepdim=True)
 
         if mask is not None:
             energy = energy.masked_fill(mask == 1, float("-1e20"))
@@ -117,7 +130,7 @@ def test_relation_multihead_self_attention_with_mask():
     batch_sizes = [6, 4]  # Number of instances in each batch
 
     # Create the RelationMultiHeadSelfAttention_withMask instance
-    model = RelationMultiHeadSelfAttention_withMask(embed_dim, num_heads)
+    model = MaxPoolRelationMultiHeadSelfAttention(embed_dim, num_heads)
 
     # Create dummy embeddings
     embeddings = torch.rand(N, embed_dim)

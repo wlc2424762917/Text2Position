@@ -49,7 +49,7 @@ def train_epoch(model, dataloader, args):
         # anchor = model.module.encode_text(batch["texts"])
         anchor_objects, clip_feature_objects = model.module.encode_text_objects(batch["texts_objects"])  # with linear layer(512->256) / without linear layer
         anchor_submap, clip_feature_submap = model.module.encode_text_submap(batch["texts_submap"])
-        positive = model.module.encode_objects(batch["objects"], batch["object_points"], args.use_edge_conv)
+        positive = model.module.encode_objects(batch["objects"], batch["object_points"])
         # print("anchor_object: ", anchor_objects.shape)
         # print("anchor_submap: ", anchor_submap.shape)
         # print("anchor", anchor.shape)
@@ -144,7 +144,7 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
         cell_enc = model.encode_objects(batch["objects"], batch["object_points"])
         batch_size = len(cell_enc)
 
-        cell_objs_2D_clip_features = batch["feature_2d"]
+        # cell_objs_2D_clip_features = batch["feature_2d"]
 
         cell_encodings[index_offset : index_offset + batch_size, :] = (
             cell_enc.cpu().detach().numpy()
