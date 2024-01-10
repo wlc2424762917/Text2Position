@@ -12,7 +12,7 @@ import os
 import pickle
 from easydict import EasyDict
 
-from models.modules import get_mlp, LanguageEncoder, Clip_LanguageEncoder, MaxPoolMultiHeadSelfAttention, Clip_LanguageEncoder_TransformerFuser
+from models.modules import get_mlp, LanguageEncoder, Clip_LanguageEncoder, MaxPoolMultiHeadSelfAttention, Clip_LanguageEncoder_TransformerFuser, MaxPoolRelationMultiHeadSelfAttention
 
 from models.object_encoder import ObjectEncoder
 import clip
@@ -61,6 +61,8 @@ class CellRetrievalNetwork(torch.nn.Module):
         elif args.only_clip_semantic_feature:
             self.mlp_pos_num = get_mlp([2 * embed_dim, embed_dim])
             self.attn_pooling = MaxPoolMultiHeadSelfAttention(embed_dim, num_heads=8)
+        elif args.use_relation_transformer:
+            self.attn_pooling = MaxPoolRelationMultiHeadSelfAttention(embed_dim, num_heads=8)
         else:  # use attention + pooling
             self.attn_pooling = MaxPoolMultiHeadSelfAttention(embed_dim, num_heads=8)
 
@@ -144,7 +146,7 @@ class CellRetrievalNetwork(torch.nn.Module):
                 batch.append(i_batch)
         batch = torch.tensor(batch, dtype=torch.long, device=self.device)
         # TODO: Norm embeddings or not?
-        embeddings, class_embeddings, color_embeddings, pos_embeddings, num_points_embeddings = self.object_encoder(objects, object_points)
+        embeddings, class_embeddings, color_embeddings, pos_embeddings, num_points_embeddings, relation_embedding = self.object_encoder(objects, object_points)
         # print("embeddings", embeddings.shape, "class_embeddings", class_embeddings.shape, "color_embeddings", color_embeddings.shape)
         embeddings = F.normalize(embeddings, dim=-1)  # OPTION: normalize, this is new
         if self.use_edge_conv:
@@ -159,8 +161,11 @@ class CellRetrievalNetwork(torch.nn.Module):
         elif self.only_clip_semantic_feature:
             x = [pos_embeddings, num_points_embeddings]
             x = torch.cat(x, dim=-1)  # [B, 2*DIM]
-            x = self.mlp_pos_num(x)
+            x = self.mlp_pos_num(x.to(self.device))
             x = self.attn_pooling(x, batch)
+        elif self.use_relation_transformer:
+            embeddings = embeddings.to(self.device)
+            x = self.attn_pooling(embeddings, batch, relation_embedding)
         else:
             embeddings = embeddings.to(self.device)
             x = self.attn_pooling(embeddings, batch)

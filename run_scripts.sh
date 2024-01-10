@@ -43,3 +43,6 @@ CUDA_VISIBLE_DEVICES=1 nohup python -m training.coarse --batch_size 64 --learnin
 
 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --no_pc_augment --class_embed --ranking_loss CLIP  --language_encoder CLIP_text --epochs 48
 
+# fine stage
+CUDA_VISIBLE_DEVICES=5 python -m training.fine --batch_size 32 --learning_rate 0.0003 --embed_dim 128 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/
+CUDA_VISIBLE_DEVICES=1 nohup python -m training.fine --batch_size 32 --learning_rate 0.0003 --embed_dim 128 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ >>log_fine_baseline &

@@ -96,7 +96,7 @@ class SuperGlueMatch(torch.nn.Module):
         """
         Object encoder
         """
-        object_encodings = self.object_encoder(objects, object_points)
+        object_encodings, class_embedding, color_embedding, pos_embedding, num_points_embedding, relation_embedding = self.object_encoder(objects, object_points)
         object_encodings = object_encodings.reshape((batch_size, num_objects, self.embed_dim))
         object_encodings = F.normalize(object_encodings, dim=-1)
 

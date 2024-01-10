@@ -77,7 +77,7 @@ def calc_recall_precision(batch_gt_matches, batch_matches0, batch_matches1):
 
 def calc_pose_error_intersect(objects, matches0, poses: List[Pose], directions):
     assert len(objects) == len(matches0) == len(poses)
-    assert isinstance(poses[0], Pose)
+    # assert isinstance(poses[0], Pose)
 
     batch_size, pad_size = matches0.shape
     poses = np.array([pose.pose for pose in poses])[:, 0:2]  # Assuming this is the best cell!
@@ -108,7 +108,7 @@ def calc_pose_error(
         [float]: Mean error.
     """
     assert len(objects) == len(matches0) == len(poses)
-    assert isinstance(poses[0], Pose)
+    # assert isinstance(poses[0], Pose)
 
     batch_size, pad_size = matches0.shape
     poses = np.array([pose.pose for pose in poses])[:, 0:2]  # Assuming this is the best cell!

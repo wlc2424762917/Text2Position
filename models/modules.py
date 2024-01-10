@@ -131,6 +131,29 @@ class Clip_LanguageEncoder(nn.Module):
         return next(self.model.parameters()).device
 
 
+class TransformerWithMaxPool(nn.Module):
+    def __init__(self, d_model, nhead, num_layers, dim_feedforward):
+        super(TransformerWithMaxPool, self).__init__()
+        # 创建 Transformer 编码器层
+        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        # self.transformer_encoder_1 = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+        # MaxPooling 层
+        self.maxpool = nn.AdaptiveMaxPool1d(1)
+
+    def forward(self, src):
+        # Transformer 编码器处理
+        transformer_output = self.transformer_encoder(src)
+        # transformer_output = self.transformer_encoder_1(transformer_output)
+        # 转换维度以适应 MaxPooling 层
+        transformer_output = transformer_output.permute(1, 2, 0)
+        # 应用 MaxPooling
+        pooled_output = self.maxpool(transformer_output)
+        # 再次转换维度
+        pooled_output = pooled_output.permute(2, 0, 1)
+        return pooled_output.squeeze(0)
+
+
 class Clip_LanguageEncoder_TransformerFuser(nn.Module):
     def __init__(self, clip_version):
         super(Clip_LanguageEncoder_TransformerFuser, self).__init__()
@@ -233,24 +256,106 @@ class MaxPoolMultiHeadSelfAttention(nn.Module):
     def device(self):
         return next(self.multihead_attn.parameters()).device
 
-class TransformerWithMaxPool(nn.Module):
-    def __init__(self, d_model, nhead, num_layers, dim_feedforward):
-        super(TransformerWithMaxPool, self).__init__()
-        # 创建 Transformer 编码器层
-        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward)
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        # self.transformer_encoder_1 = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
-        # MaxPooling 层
-        self.maxpool = nn.AdaptiveMaxPool1d(1)
 
-    def forward(self, src):
-        # Transformer 编码器处理
-        transformer_output = self.transformer_encoder(src)
-        # transformer_output = self.transformer_encoder_1(transformer_output)
-        # 转换维度以适应 MaxPooling 层
-        transformer_output = transformer_output.permute(1, 2, 0)
-        # 应用 MaxPooling
-        pooled_output = self.maxpool(transformer_output)
-        # 再次转换维度
-        pooled_output = pooled_output.permute(2, 0, 1)
-        return pooled_output.squeeze(0)
+class RelationMultiHeadSelfAttention(nn.Module):
+    def __init__(self, embed_size, heads):
+        super(RelationMultiHeadSelfAttention, self).__init__()
+        self.embed_size = embed_size
+        self.heads = heads
+        self.head_dim = embed_size // heads
+
+        assert (
+            self.head_dim * heads == embed_size
+        ), "Embedding size needs to be divisible by heads"
+
+        self.values = nn.Linear(self.head_dim, self.head_dim, bias=False)
+        self.keys = nn.Linear(self.head_dim, self.head_dim, bias=False)
+        self.queries = nn.Linear(self.head_dim, self.head_dim, bias=False)
+        self.relations = nn.Linear(self.head_dim, self.head_dim, bias=False)
+
+        self.fc_out = nn.Linear(heads * self.head_dim, embed_size)
+
+    def forward(self, values, keys, query, mask, relation):
+        N = query.shape[0]
+        value_len, key_len, query_len = values.shape[1], keys.shape[1], query.shape[1]
+
+        # Split the embedding into self.heads different pieces
+        values = values.reshape(N, value_len, self.heads, self.head_dim)
+        keys = keys.reshape(N, key_len, self.heads, self.head_dim)
+        queries = query.reshape(N, query_len, self.heads, self.head_dim)
+        relation = relation.reshape(N, query_len, key_len, self.heads, self.head_dim)
+        # get q k v relation
+        values = self.values(values)
+        keys = self.keys(keys)
+        queries = self.queries(queries)
+        relation = self.relations(relation)
+        relation = relation.permute(0, 3, 1, 2, 4)
+
+        # 计算 Q 和 K 的点积，并将 relation 的嵌入加入到乘积中
+        # einsum 路径 'nqhd,nkhd,nhqkd->nhqk' 表示对于每个批次 (n) 和每个头 (h)：
+        # - Q (nqhd) 和 K (nkhd) 的点积
+        # - 然后与 relation (nhqkd) 相乘
+        # energy = torch.einsum('nqhd,nkhd,nhqkd->nhqk', queries, keys, relation)
+
+        energy = torch.einsum('nqhd,nkhd->nhqkd', queries, keys)
+        energy = torch.einsum('nhqkd,nhqkd->nhqk', energy, relation)
+
+        if mask is not None:
+            energy = energy.masked_fill(mask == 1, float("-1e20"))
+
+        attention = torch.softmax(energy / (self.embed_size ** (1 / 2)), dim=3)
+
+        out = torch.einsum("nhql,nlhd->nqhd", [attention, values]).reshape(
+            N, query_len, self.heads * self.head_dim
+        )
+
+        out = self.fc_out(out)
+        return out
+
+
+class MaxPoolRelationMultiHeadSelfAttention(nn.Module):
+    def __init__(self, embed_dim, num_heads):
+        super(MaxPoolRelationMultiHeadSelfAttention, self).__init__()
+        self.multihead_attn = RelationMultiHeadSelfAttention(embed_dim, num_heads)
+        self.num_heads = num_heads
+        self.embed_dim = embed_dim
+
+    def forward(self, embeddings, batch, relation):
+        # relation is [batch_size, num_obj, num_obj, embed_dim]
+        # 计算每个批次的最大长度
+        max_len = max([sum(batch == i) for i in batch.unique()])
+
+        # 初始化填充后的嵌入和掩码
+        padded_embeddings = torch.zeros(len(batch.unique()), max_len, embeddings.size(-1))
+        padded_relation = torch.zeros(len(batch.unique()), max_len, max_len, self.embed_dim)
+        mask = torch.ones(len(batch.unique()), max_len, max_len)
+
+        # 对每个批次添加填充embedding, relation掩码, (B, max_len, D), (B, max_len, max_len, embed_dim)
+        for i, b in enumerate(batch.unique()):
+            # embedding padding
+            batch_embeddings = embeddings[batch == b]
+            padded_embeddings[i, :batch_embeddings.size(0)] = batch_embeddings
+            mask[i, :batch_embeddings.size(0), :batch_embeddings.size(0)] = 0  # 0表示有效值，1表示无效值
+            # relation embedding padding
+            relation_len = relation[i].shape[0]
+            assert relation_len == sum(batch == b)
+            padded_relation[i, :relation_len, :relation_len] = relation[i]
+
+        # 调整形状以适应多头注意力模块
+        padded_embeddings = padded_embeddings
+        # 重塑掩码以匹配多头注意力的头数
+
+        # mask = mask.repeat(self.num_heads, 1, 1)  # 形状变为 [num_heads * B, max_len, max_len]
+        mask = mask.unsqueeze(1).repeat(1, self.num_heads, 1, 1)  # 形状变为 [B, num_heads, max_len, max_len]
+
+        # 应用多头自注意力机制
+        attn_output = self.multihead_attn(padded_embeddings.to(self.device), padded_embeddings.to(self.device), padded_embeddings.to(self.device), mask.to(self.device), padded_relation.to(self.device))
+
+        # 应用最大池化
+        attn_output = F.max_pool1d(attn_output.transpose(1, 2), attn_output.size(1)).squeeze(-1)
+
+        return attn_output
+
+    @property
+    def device(self):
+        return next(self.multihead_attn.parameters()).device

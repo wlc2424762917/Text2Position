@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="wanglichao@192.168.3.32:22 password (3)" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="wanglichao@192.168.3.32:22 password (2)" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
     <option name="confirmBeforeUploading" value="false" />
     <serverData>
       <paths name="FNii_Futian32">
@@ -17,31 +17,10 @@
           </mappings>
         </serverdata>
       </paths>
-      <paths name="Yanglab7">
-        <serverdata>
-          <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="wanglichao@192.168.3.31:22 password">
-        <serverdata>
-          <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="wanglichao@192.168.3.31:22 password (2)">
-        <serverdata>
-          <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
-          </mappings>
-        </serverdata>
-      </paths>
       <paths name="wanglichao@192.168.3.32:22 password">
         <serverdata>
           <mappings>
-            <mapping deploy="/tmp/pycharm_project_902" local="$PROJECT_DIR$" />
+            <mapping deploy="/home/wanglichao/Text2Position" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>
@@ -56,7 +35,7 @@
       <paths name="wanglichao@192.168.3.32:22 password (3)">
         <serverdata>
           <mappings>
-            <mapping deploy="/home/wanglichao/Text2Position" local="$PROJECT_DIR$" />
+            <mapping deploy="/tmp/pycharm_project_226" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>

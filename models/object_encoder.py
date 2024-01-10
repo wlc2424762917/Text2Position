@@ -38,11 +38,10 @@ class ObjectEncoder(torch.nn.Module):
         self.known_colors["<unk>"] = 0
         self.color_embedding = nn.Embedding(len(self.known_colors), embed_dim, padding_idx=0)
 
-        # point_num embedding
-        self.num_encoder = get_mlp([1, 64, embed_dim])
-
+        self.relation_encoder = get_mlp([2, 64, embed_dim])  # OPTION: relation_encoder layers
+        self.num_encoder = get_mlp([1, 64, embed_dim])  # OPTION: num_encoder layers
         self.pos_encoder = get_mlp([3, 64, embed_dim])  # OPTION: pos_encoder layers
-        self.color_encoder = get_mlp([3, 64, embed_dim])  # OPTION: color_encoder layers
+        self.color_encoder = get_mlp([3, 64, embed_dim])  # OPTION: color_encoder layers、
 
         self.pointnet = PointNet2(
             len(known_classes), len(known_colors), args
@@ -159,6 +158,7 @@ class ObjectEncoder(torch.nn.Module):
                 color_embedding = F.normalize(color_embedding, dim=-1)
                 embeddings.append(color_embedding)
 
+        pos_embedding = None
         if "position" in self.args.use_features:
             positions = []
             for objects_sample in objects:
@@ -169,6 +169,7 @@ class ObjectEncoder(torch.nn.Module):
             )
             embeddings.append(F.normalize(pos_embedding, dim=-1))
 
+        num_points_embedding = None
         if "num_points" in self.args.use_features:
             num_points = []
             for objects_sample in objects:
@@ -179,12 +180,27 @@ class ObjectEncoder(torch.nn.Module):
             )
             embeddings.append(F.normalize(num_points_embedding, dim=-1))
 
+        relation_embedding = None
+        if "relation" in self.args.use_features:
+            # get relation matrix
+            relations = []
+            for i_batch, objects_sample in enumerate(objects):
+                centers_i = torch.tensor([obj.get_center()[0:2] for obj in objects_sample], dtype=torch.float, device=self.get_device())
+                centers_j = torch.tensor([obj.get_center()[0:2] for obj in objects_sample], dtype=torch.float, device=self.get_device())
+                # Broadcasting the subtraction operation over the two tensors.
+                # The unsqueeze method is used to add the necessary dimension for broadcasting.
+                relation_matrix = centers_i.unsqueeze(1) - centers_j.unsqueeze(0)  # [num_obj, num_obj, 2] tensor
+                relations.append(relation_matrix)
+            # pad relations to the same size (the max number of objects in a batch)
+            # relations = torch.nn.utils.rnn.pad_sequence(relations, batch_first=True, padding_value=0)  # [batch_size, num_obj, num_obj, 2]
+            relation_embedding = self.relation_encoder(relations)
+
         if len(embeddings) > 1:
             embeddings = self.mlp_merge(torch.cat(embeddings, dim=-1))
         else:
             embeddings = embeddings[0]
 
-        return embeddings, class_embedding, color_embedding, pos_embedding, num_points_embedding
+        return embeddings, class_embedding, color_embedding, pos_embedding, num_points_embedding, relation_embedding
 
     @property
     def device(self):

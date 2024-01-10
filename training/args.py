@@ -66,6 +66,11 @@ def parse_arguments():
 
     # PyG
     parser.add_argument("--use_edge_conv", action="store_true")
+
+    # Relation Transformer
+    parser.add_argument("--use_relation_transformer", action="store_true")
+
+    # use clip feature as instance semantic feature
     parser.add_argument("--only_clip_semantic_feature", action="store_true")
 
     # language encoder
