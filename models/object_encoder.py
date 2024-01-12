@@ -41,24 +41,26 @@ class ObjectEncoder(torch.nn.Module):
         self.relation_encoder = get_mlp([2, 64, embed_dim])  # OPTION: relation_encoder layers
         self.num_encoder = get_mlp([1, 64, embed_dim])  # OPTION: num_encoder layers
         self.pos_encoder = get_mlp([3, 64, embed_dim])  # OPTION: pos_encoder layers
-        self.color_encoder = get_mlp([3, 64, embed_dim])  # OPTION: color_encoder layers、
+        self.color_encoder = get_mlp([3, 64, embed_dim])  # OPTION: color_encoder layers
 
-        self.pointnet = PointNet2(
-            len(known_classes), len(known_colors), args
-        )  # The known classes are all the same now, at least for K360
-        self.pointnet.load_state_dict(torch.load(args.pointnet_path))
-        # self.pointnet_dim = self.pointnet.lin2.weight.size(0)
+        # use pointnet++ to extract semantic features
+        if not args.only_clip_semantic_feature:
+            self.pointnet = PointNet2(
+                len(known_classes), len(known_colors), args
+            )  # The known classes are all the same now, at least for K360
+            self.pointnet.load_state_dict(torch.load(args.pointnet_path))
+            # self.pointnet_dim = self.pointnet.lin2.weight.size(0)
 
-        if args.pointnet_freeze:
-            print("CARE: freezing PN")
-            self.pointnet.requires_grad_(False)
+            if args.pointnet_freeze:
+                print("CARE: freezing PN")
+                self.pointnet.requires_grad_(False)
+            if args.pointnet_features == 0:
+                self.mlp_pointnet = get_mlp([self.pointnet.dim0, self.embed_dim])
+            elif args.pointnet_features == 1:
+                self.mlp_pointnet = get_mlp([self.pointnet.dim1, self.embed_dim])
+            elif args.pointnet_features == 2:
+                self.mlp_pointnet = get_mlp([self.pointnet.dim2, self.embed_dim])
 
-        if args.pointnet_features == 0:
-            self.mlp_pointnet = get_mlp([self.pointnet.dim0, self.embed_dim])
-        elif args.pointnet_features == 1:
-            self.mlp_pointnet = get_mlp([self.pointnet.dim1, self.embed_dim])
-        elif args.pointnet_features == 2:
-            self.mlp_pointnet = get_mlp([self.pointnet.dim2, self.embed_dim])
         merged_embedding_dim = len(args.use_features) * embed_dim
         if "class_embed" in args and args.class_embed:
             merged_embedding_dim += embed_dim
@@ -66,6 +68,7 @@ class ObjectEncoder(torch.nn.Module):
             merged_embedding_dim += embed_dim
         if "num_embed" in args and args.num_embed:
             merged_embedding_dim += embed_dim
+        print(f"merged_embedding_dim, {merged_embedding_dim}")
         self.mlp_merge = get_mlp([merged_embedding_dim, embed_dim])
 
     def forward(self, objects: List[Object3d], object_points):
@@ -99,13 +102,14 @@ class ObjectEncoder(torch.nn.Module):
             for pyg_batch in object_points:
                 pyg_batch.x[:] = 0.0  # x is color, pos is xyz
 
-        object_features = [
-            self.pointnet(pyg_batch.to(self.get_device())).features2
-            for pyg_batch in object_points
-        ]  # [B, obj_counts, PN_dim]
+        if not self.args.only_clip_semantic_feature:
+            object_features = [
+                self.pointnet(pyg_batch.to(self.get_device())).features2
+                for pyg_batch in object_points
+            ]  # [B, obj_counts, PN_dim]
 
-        object_features = torch.cat(object_features, dim=0)  # [total_objects, PN_dim]
-        object_features = self.mlp_pointnet(object_features)
+            object_features = torch.cat(object_features, dim=0)  # [total_objects, PN_dim]
+            object_features = self.mlp_pointnet(object_features)
 
         embeddings = []
 
@@ -124,7 +128,7 @@ class ObjectEncoder(torch.nn.Module):
                 embeddings.append(
                     F.normalize(object_features, dim=-1)
                 )  # Use features from PointNet
-            else:
+            elif not self.args.only_clip_semantic_feature:
                 embeddings.append(
                     F.normalize(object_features, dim=-1)
                 )  # Use features from PointNet
@@ -207,6 +211,17 @@ class ObjectEncoder(torch.nn.Module):
             embeddings = self.mlp_merge(torch.cat(embeddings, dim=-1))
         else:
             embeddings = embeddings[0]
+
+        # if use clip feature as instance semantic feature, concat clip feature with object embedding
+        if self.args.only_clip_semantic_feature:
+            clip_2d_features = []
+            for objects_sample in objects:
+                for obj in objects_sample:
+                    print(obj.feature_2d.shape)
+                clip_2d_features.extend([obj.feature_2d for obj in objects_sample])
+            clip_2d_features = np.array(clip_2d_features)
+            clip_2d_features = torch.tensor(clip_2d_features, dtype=torch.float, device=self.get_device())
+            embeddings = torch.cat((embeddings, clip_2d_features), dim=-1)  # [N, embedding_dim + clip_dim]
 
         return embeddings, class_embedding, color_embedding, pos_embedding, num_points_embedding, relation_embedding
 

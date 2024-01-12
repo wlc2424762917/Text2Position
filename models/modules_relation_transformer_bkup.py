@@ -274,6 +274,7 @@ class RelationMultiHeadSelfAttention(nn.Module):
         self.relations = nn.Linear(self.head_dim, self.head_dim, bias=False)
 
         self.fc_out = nn.Linear(heads * self.head_dim, embed_size)
+        self.fc_fuse = nn.Linear(2 * self.head_dim, self.head_dim)
 
     def forward(self, values, keys, query, mask, relation):
         N = query.shape[0]
@@ -284,31 +285,35 @@ class RelationMultiHeadSelfAttention(nn.Module):
         keys = keys.reshape(N, key_len, self.heads, self.head_dim)
         queries = query.reshape(N, query_len, self.heads, self.head_dim)
         relation = relation.reshape(N, query_len, key_len, self.heads, self.head_dim)
-
-        # Pool the relation matrix along rows and columns using max pooling
-        relation_row_pool, _ = relation.max(dim=-2, keepdim=True)
-        relation_col_pool, _ = relation.max(dim=-3, keepdim=True)
-
-        # Get q, k, v from linear transformations
+        # get q k v relation
         values = self.values(values)
         keys = self.keys(keys)
         queries = self.queries(queries)
+        relation = self.relations(relation)
+        relation = relation.permute(0, 3, 1, 2, 4)
 
-        # Add the pooled relation matrix to q and k
-        queries_with_relation = queries + relation_row_pool
-        keys_with_relation = keys + relation_col_pool
+        # 计算 Q 和 K 的点积，并将 relation 的嵌入加入到乘积中
+        # einsum 路径 'nqhd,nkhd,nhqkd->nhqk' 表示对于每个批次 (n) 和每个头 (h)：
+        # - Q (nqhd) 和 K (nkhd) 的点积
+        # - 然后与 relation (nhqkd) 相乘
+        # energy = torch.einsum('nqhd,nkhd,nhqkd->nhqk', queries, keys, relation)
 
-        # Calculate the energy (qk^T)
-        energy = torch.einsum('nqhd,nkhd->nhqk', queries_with_relation, keys_with_relation)
+        # - Q (nqhd) 和 K (nkhd) 的点积
+        energy = torch.einsum('nqhd,nkhd->nhqkd', queries, keys)
+        # energy = torch.einsum('nhqkd,nhqkd->nhqk', energy, relation)
+        # concat relation and energy on the last dim (embed_dim)
+        energy = torch.cat((energy, relation), dim=-1)
+        # 通过一个mlp
+        energy = self.fc_fuse(energy)
+        # 将d维sum到一起
+        energy = energy.sum(dim=-1, keepdim=True)
 
         if mask is not None:
             energy = energy.masked_fill(mask == 1, float("-1e20"))
 
-        # Softmax
         attention = torch.softmax(energy / (self.embed_size ** (1 / 2)), dim=3)
 
-        # Perform attention-based weighted sum
-        out = torch.einsum("nhqk,nqhd->nqhd", [attention, values]).reshape(
+        out = torch.einsum("nhql,nlhd->nqhd", [attention, values]).reshape(
             N, query_len, self.heads * self.head_dim
         )
 

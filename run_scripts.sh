@@ -33,8 +33,16 @@ CUDA_VISIBLE_DEVICES=3 nohup python -m training.coarse --batch_size 64 --learnin
 CUDA_VISIBLE_DEVICES=2 nohup python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --class_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --epochs 48 >> log_gpu2_clipCoss_classEmbed_clipTextTransformerx2LanguageEncoder_fixed_withPcAug_lr1e-4 &
 CUDA_VISIBLE_DEVICES=2 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --class_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --epochs 48
 
-# language clip_transformer no_pc_augment class embedding clip loss lr 1e-4
-CUDA_VISIBLE_DEVICES=0 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --no_pc_augment --class_embed --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --use_relation_transformer --epochs 36
+# language clip_transformer no_pc_augment class embedding clip loss lr 1e-4 relation transformer
+CUDA_VISIBLE_DEVICES=5 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --no_pc_augment --class_embed --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --use_relation_transformer --epochs 36
+
+
+
+# language clip_transformer no_pc_augment class embedding clip loss lr 1e-4 clip_2D_text_feature
+CUDA_VISIBLE_DEVICES=1 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_text_30-10_gridCells_pd10_pc4_shiftPoses_all_nm-6/ --no_pc_augment --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --only_clip_semantic_feature --use_features color position --epochs 36
+
+
+
 
 
 # lstm clip loss + class embedding + no pc augment

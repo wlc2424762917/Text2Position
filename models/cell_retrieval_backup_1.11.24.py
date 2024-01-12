@@ -59,11 +59,10 @@ class CellRetrievalNetwork(torch.nn.Module):
                     get_mlp([2 * embed_dim, embed_dim, embed_dim], add_batchnorm=True), k=8, aggr="mean"
                 )  # Originally: k=4
                 self.lin = get_mlp([embed_dim, embed_dim, embed_dim])
-        elif args.only_clip_semantic_feature and not args.use_relation_transformer:
-            self.attn_pooling = MaxPoolMultiHeadSelfAttention(embed_dim+512, num_heads=8)
-        elif args.only_clip_semantic_feature and args.use_relation_transformer:
-            self.attn_pooling = MaxPoolRelationMultiHeadSelfAttention(embed_dim+512, num_heads=8)
-        elif args.use_relation_transformer and not args.only_clip_semantic_feature:
+        elif args.only_clip_semantic_feature:
+            self.mlp_pos_num = get_mlp([2 * embed_dim, embed_dim])
+            self.attn_pooling = MaxPoolMultiHeadSelfAttention(embed_dim, num_heads=8)
+        elif args.use_relation_transformer:
             self.attn_pooling = MaxPoolRelationMultiHeadSelfAttention(embed_dim, num_heads=8)
         else:  # use attention + pooling
             self.attn_pooling = MaxPoolMultiHeadSelfAttention(embed_dim, num_heads=8)
@@ -160,12 +159,11 @@ class CellRetrievalNetwork(torch.nn.Module):
                 x = self.graph1(embeddings, batch)
                 x = gnn.global_mean_pool(x, batch)
                 x = self.lin(x)
-        elif self.only_clip_semantic_feature and not self.use_relation_transformer:
-            x = embeddings.to(self.device)
+        elif self.only_clip_semantic_feature:
+            x = [pos_embeddings, num_points_embeddings]
+            x = torch.cat(x, dim=-1)  # [B, 2*DIM]
+            x = self.mlp_pos_num(x.to(self.device))
             x = self.attn_pooling(x, batch)
-        elif self.only_clip_semantic_feature and self.use_relation_transformer:
-            x = embeddings.to(self.device)
-            x = self.attn_pooling(x, batch, relation_embedding)
         elif self.use_relation_transformer:
             embeddings = embeddings.to(self.device)
             x = self.attn_pooling(embeddings, batch, relation_embedding)

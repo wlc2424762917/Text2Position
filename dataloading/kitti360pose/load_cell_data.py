@@ -9,12 +9,13 @@ import cv2
 from copy import deepcopy
 from dataloading.kitti360pose.cells import *
 
-# with open("/home/wanglichao/Text2Position/data/k360_30-10_scG_pd10_pc4_spY_all/cells/2013_05_28_drive_0000_sync.pkl", "rb") as f:
-#     cells = pkl.load(f)
-#     print(len(cells))
-#     print(cells[0])
-#     print(cells[0].objects[0])
-#     print(cells[0].objects[0].xyz.shape)
+with open("/home/wanglichao/Text2Position/data/k360_text_30-10_gridCells_pd10_pc4_shiftPoses_all_nm-6/cells/2013_05_28_drive_0002_sync.pkl", "rb") as f:
+    cells = pkl.load(f)
+    print(len(cells))
+    print(cells[0])
+    print(cells[0].objects[0])
+    print(cells[0].objects[0].xyz.shape)
+    print(cells[0].objects[0].feature_2d)
 
 # with open("/home/wanglichao/Text2Position/data/k360_30-10_scG_pd10_pc4_spY_all/poses/2013_05_28_drive_0000_sync.pkl", "rb") as f:
 #     poses = pkl.load(f)
@@ -25,18 +26,18 @@ from dataloading.kitti360pose.cells import *
 #         print(descr)
 #         print(descr.offset_closest)
 
-with open("/home/wanglichao/KITTI-360/objects/2013_05_28_drive_0003_sync.pkl", "rb") as f:
-    objs = pkl.load(f)
-    print(len(objs))
-    n_2d_feature = 0
-    for obj in objs:
-        print(obj)
-        if obj.feature_2d is not None:
-            n_2d_feature += 1
-            print(obj.feature_2d.shape)
-        else:
-            print("None 2D feature")
-    print(f"n_2d_feature: {n_2d_feature} out of {len(objs)}")
+# with open("/home/wanglichao/KITTI-360/objects/2013_05_28_drive_0003_sync.pkl", "rb") as f:
+#     objs = pkl.load(f)
+#     print(len(objs))
+#     n_2d_feature = 0
+#     for obj in objs:
+#         print(obj)
+#         if obj.feature_2d is not None:
+#             n_2d_feature += 1
+#             print(obj.feature_2d.shape)
+#         else:
+#             print("None 2D feature")
+#     print(f"n_2d_feature: {n_2d_feature} out of {len(objs)}")
 
 # base_path = "/home/wanglichao/Text2Pos-CVPR2022/data/k360_30-10_scG_pd10_pc4_spY_all/"
 # batch_size = 64

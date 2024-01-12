@@ -7,7 +7,7 @@ from datapreparation.kitti360pose.utils import COLORS, COLOR_NAMES
 
 class Object3d:
     # NOTE: use cell-id and scene-names to unique identify objects if needed
-    def __init__(self, id: int, instance_id: int, xyz: np.ndarray, rgb: np.ndarray, label: str):
+    def __init__(self, id: int, instance_id: int, xyz: np.ndarray, rgb: np.ndarray, label: str, image_2d=[], feature_2d=[], feature_2d_text=None):
         """Representation of a 3D object in the scene
 
         Args:
@@ -22,9 +22,9 @@ class Object3d:
         self.xyz = xyz
         self.rgb = rgb
         self.label = label
-        self.image_2d = []
-        self.feature_2d = []
-        self.feature_2d_text = None
+        self.image_2d = image_2d
+        self.feature_2d = feature_2d
+        self.feature_2d_text = feature_2d_text
         # self.closest_point = None # Set in get_closest_point() for cell-object. CARE: may now be "incorrect" since multiple poses can use this object/cells
         # self.center = None # TODO, for SG-Matching: ok to just input center instead of closest-point? or better to directly input xyz (care that PN++ knowns about coords)
 
@@ -54,7 +54,7 @@ class Object3d:
         """Mask xyz and rgb, the id is retained"""
         assert len(mask) > 6  # To prevent bbox input
         # return Object3d(self.xyz[mask], self.rgb[mask], self.label, self.id)
-        return Object3d(self.id, self.instance_id, self.xyz[mask], self.rgb[mask], self.label)
+        return Object3d(self.id, self.instance_id, self.xyz[mask], self.rgb[mask], self.label, [], self.feature_2d, [])
 
     def get_closest_point(self, anchor):
         dists = np.linalg.norm(self.xyz - anchor, axis=1)
