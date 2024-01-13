@@ -365,6 +365,24 @@ class ClipLoss(nn.Module):
         labels = torch.arange(len(logits), device=logits.device)
         return nn.functional.cross_entropy(logits, labels)
 
+class SemanticLoss(nn.Module):
+    def __init__(self, known_classes):
+        super(SemanticLoss, self).__init__()
+        self.loss_fn = nn.CrossEntropyLoss()
+        self.known_classes = {c: (i + 1) for i, c in enumerate(known_classes)}
+        self.known_classes["<unk>"] = 0
+        # print(f"SemanticLoss: {self.known_classes}")
+    def forward(self, predictions, objects):
+        class_indices = []  # Batch tensor to send into PyG
+        for i_batch, objects_sample in enumerate(objects):
+            for obj in objects_sample:
+                class_idx = self.known_classes.get(obj.label, 0)
+                class_indices.append(class_idx)
+        class_indices = torch.tensor(class_indices, dtype=torch.long, device=predictions.device)  # [N]
+        # print(f"predictions: {predictions.shape}, class_indices: {class_indices.shape}")
+        # print(class_indices.max())
+        return self.loss_fn(predictions, class_indices)
+
 
 if __name__ == "__main__":
     # objects = [

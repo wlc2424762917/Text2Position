@@ -61,15 +61,16 @@ class CellRetrievalNetwork(torch.nn.Module):
                 self.lin = get_mlp([embed_dim, embed_dim, embed_dim])
         elif args.only_clip_semantic_feature and not args.use_relation_transformer:
             self.attn_pooling = MaxPoolMultiHeadSelfAttention(embed_dim+512, num_heads=8)
+            self.final_linear = nn.Linear(embed_dim + 512, embed_dim)
         elif args.only_clip_semantic_feature and args.use_relation_transformer:
             self.attn_pooling = MaxPoolRelationMultiHeadSelfAttention(embed_dim+512, num_heads=8)
+            self.final_linear = nn.Linear(embed_dim + 512, embed_dim)
         elif args.use_relation_transformer and not args.only_clip_semantic_feature:
             self.attn_pooling = MaxPoolRelationMultiHeadSelfAttention(embed_dim, num_heads=8)
         else:  # use attention + pooling
             self.attn_pooling = MaxPoolMultiHeadSelfAttention(embed_dim, num_heads=8)
 
         self.object_encoder = ObjectEncoder(embed_dim, known_classes, known_colors, args)
-
 
         """
         Textual path
@@ -81,7 +82,7 @@ class CellRetrievalNetwork(torch.nn.Module):
             self.language_linear_submap = nn.Linear(512, embed_dim)
 
         elif args.language_encoder == "CLIP_text_transformer":
-            self.language_encoder = Clip_LanguageEncoder_TransformerFuser(clip_version="ViT-B/32")
+            self.language_encoder = Clip_LanguageEncoder_TransformerFuser(clip_version="ViT-B/32", clip_text_freeze=self.args.clip_text_freeze)
             self.language_linear = nn.Linear(512, embed_dim)
             # self.language_linear_object = nn.Linear(512, embed_dim)
             self.language_linear_submap = nn.Linear(512, embed_dim)
@@ -143,14 +144,20 @@ class CellRetrievalNetwork(torch.nn.Module):
         batch = []  # Batch tensor to send into PyG
         for i_batch, objects_sample in enumerate(objects):
             for obj in objects_sample:
-                # class_idx = self.known_classes.get(obj.label, 0)
+                #  class_idx = self.known_classes.get(obj.label, 0)
                 # class_indices.append(class_idx)
                 batch.append(i_batch)
         batch = torch.tensor(batch, dtype=torch.long, device=self.device)
+
         # TODO: Norm embeddings or not?
-        embeddings, class_embeddings, color_embeddings, pos_embeddings, num_points_embeddings, relation_embedding = self.object_encoder(objects, object_points)
+        # use semantic head or not
+        if self.args.use_semantic_head:
+            embeddings, class_embedding, color_embedding, pos_embedding, num_points_embedding, relation_embedding, object_features_sem = self.object_encoder(objects, object_points)
+        else:
+            embeddings, class_embeddings, color_embeddings, pos_embeddings, num_points_embeddings, relation_embedding = self.object_encoder(objects, object_points)
         # print("embeddings", embeddings.shape, "class_embeddings", class_embeddings.shape, "color_embeddings", color_embeddings.shape)
         embeddings = F.normalize(embeddings, dim=-1)  # OPTION: normalize, this is new
+
         if self.use_edge_conv:
             if self.variation == 0:
                 x = self.graph1(embeddings, batch)
@@ -163,6 +170,7 @@ class CellRetrievalNetwork(torch.nn.Module):
         elif self.only_clip_semantic_feature and not self.use_relation_transformer:
             x = embeddings.to(self.device)
             x = self.attn_pooling(x, batch)
+            x = self.final_linear(x)
         elif self.only_clip_semantic_feature and self.use_relation_transformer:
             x = embeddings.to(self.device)
             x = self.attn_pooling(x, batch, relation_embedding)
@@ -174,7 +182,10 @@ class CellRetrievalNetwork(torch.nn.Module):
             x = self.attn_pooling(embeddings, batch)
         x = F.normalize(x)
         # print("x", x.shape)
-        return x
+        if self.args.use_semantic_head:
+            return x, object_features_sem
+        else:
+            return x
 
     def forward(self):
         raise Exception("Not implemented.")
@@ -185,6 +196,8 @@ class CellRetrievalNetwork(torch.nn.Module):
 
     def get_device(self):
         return next(self.lin.parameters()).device
+
+
 
 
 if __name__ == "__main__":

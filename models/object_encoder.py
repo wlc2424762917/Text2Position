@@ -71,6 +71,9 @@ class ObjectEncoder(torch.nn.Module):
         print(f"merged_embedding_dim, {merged_embedding_dim}")
         self.mlp_merge = get_mlp([merged_embedding_dim, embed_dim])
 
+        if args.use_semantic_head:
+            self.semantic_head = SemanticHead(embed_dim, 512, len(known_classes)+1)
+
     def forward(self, objects: List[Object3d], object_points):
         """Features are currently normed before merging but not at the end.
 
@@ -110,6 +113,12 @@ class ObjectEncoder(torch.nn.Module):
 
             object_features = torch.cat(object_features, dim=0)  # [total_objects, PN_dim]
             object_features = self.mlp_pointnet(object_features)
+
+            if self.args.use_semantic_head:
+                object_features_sem = self.semantic_head(object_features)  # [total_objects, num_classes]
+                # 还原batch [B, obj_counts, PN_dim]
+                # object_features_sem = torch.split(object_features, [pyg_batch.num_nodes for pyg_batch in object_points], dim=0)
+                # shape: [B, obj_counts, num_classes]
 
         embeddings = []
 
@@ -216,13 +225,19 @@ class ObjectEncoder(torch.nn.Module):
         if self.args.only_clip_semantic_feature:
             clip_2d_features = []
             for objects_sample in objects:
-                for obj in objects_sample:
-                    print(obj.feature_2d.shape)
                 clip_2d_features.extend([obj.feature_2d for obj in objects_sample])
             clip_2d_features = np.array(clip_2d_features)
             clip_2d_features = torch.tensor(clip_2d_features, dtype=torch.float, device=self.get_device())
+            clip_2d_features = clip_2d_features.squeeze(1)
+            # print(f"clip_2d_features: {clip_2d_features.shape}")
+            # print(f"embeddings: {embeddings.shape}")
+            # normalize embeddings
+            embeddings = F.normalize(embeddings, dim=-1)
+            # print(f"embeddings: {embeddings.max()}, {embeddings.min()}")
+            # print(f"clip_2d_features: {clip_2d_features.max()}, {clip_2d_features.min()}")
             embeddings = torch.cat((embeddings, clip_2d_features), dim=-1)  # [N, embedding_dim + clip_dim]
-
+        if self.args.use_semantic_head:
+            return embeddings, class_embedding, color_embedding, pos_embedding, num_points_embedding, relation_embedding, object_features_sem
         return embeddings, class_embedding, color_embedding, pos_embedding, num_points_embedding, relation_embedding
 
     @property
@@ -231,3 +246,18 @@ class ObjectEncoder(torch.nn.Module):
 
     def get_device(self):
         return next(self.class_embedding.parameters()).device
+
+
+class SemanticHead(nn.Module):
+    def __init__(self, input_dim, hidden_dim, output_dim):
+        super(SemanticHead, self).__init__()
+        self.fc1 = nn.Linear(input_dim, hidden_dim)
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
+        self.fc3 = nn.Linear(hidden_dim, output_dim)
+
+    def forward(self, x):
+        x = F.gelu(self.fc1(x))
+        x = F.gelu(self.fc2(x))
+        x = self.fc3(x)
+        return F.softmax(x, dim=1)
+

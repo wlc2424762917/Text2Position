@@ -24,7 +24,7 @@ from dataloading.kitti360pose.cells import Kitti360CoarseDatasetMulti, Kitti360C
 
 from training.args import parse_arguments
 from training.plots import plot_metrics
-from training.losses import MatchingLoss, PairwiseRankingLoss, HardestRankingLoss, ClipLoss
+from training.losses import MatchingLoss, PairwiseRankingLoss, HardestRankingLoss, ClipLoss, SemanticLoss
 from training.utils import plot_retrievals
 
 
@@ -49,14 +49,10 @@ def train_epoch(model, dataloader, args):
         # anchor = model.module.encode_text(batch["texts"])
         anchor_objects, clip_feature_objects = model.module.encode_text_objects(batch["texts_objects"])  # with linear layer(512->256) / without linear layer
         anchor_submap, clip_feature_submap = model.module.encode_text_submap(batch["texts_submap"])
-        positive = model.module.encode_objects(batch["objects"], batch["object_points"])
-        # print("anchor_object: ", anchor_objects.shape)
-        # print("anchor_submap: ", anchor_submap.shape)
-        # print("anchor", anchor.shape)
-        # print("positive", positive.shape)
-        # quit()
-        # time_end_forward = time.time()
-        # print(f"forward {i_batch} in {time_end_forward - time_start_forward:0.2f}")
+        if args.use_semantic_head:
+            positive, sem_pred = model.module.encode_objects(batch["objects"], batch["object_points"])
+        else:
+            positive = model.module.encode_objects(batch["objects"], batch["object_points"])
 
         if args.ranking_loss == "triplet":
             negative_cell_objects = [cell.objects for cell in batch["negative_cells"]]
@@ -72,6 +68,10 @@ def train_epoch(model, dataloader, args):
 
         loss = loss
 
+        if args.use_semantic_head:
+            # print("use semantic head")
+            semantic_loss = criterion_class(sem_pred, batch["objects"])
+            loss += 0.2 * semantic_loss
         loss.backward()
         optimizer.step()
 
@@ -141,7 +141,10 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
     # Encode the database side
     index_offset = 0
     for batch in cells_dataloader:
-        cell_enc = model.encode_objects(batch["objects"], batch["object_points"])
+        if args.use_semantic_head:
+            cell_enc, _= model.encode_objects(batch["objects"], batch["object_points"])
+        else:
+            cell_enc = model.encode_objects(batch["objects"], batch["object_points"])
         batch_size = len(cell_enc)
 
         # cell_objs_2D_clip_features = batch["feature_2d"]
@@ -315,7 +318,7 @@ if __name__ == "__main__":
         if args.ranking_loss == "CLIP":
             criterion = ClipLoss()
 
-        criterion_class = nn.CrossEntropyLoss()
+        criterion_class = SemanticLoss(dataset_train.get_known_classes())
         criterion_color = nn.CrossEntropyLoss()
 
         scheduler = optim.lr_scheduler.ExponentialLR(optimizer, args.lr_gamma)

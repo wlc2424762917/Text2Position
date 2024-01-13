@@ -310,7 +310,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
     from labels import id2label
 
-    semantics = 1
+    semantics = 2
     os.environ["KITTI360_DATASET"] = '/home/wanglichao/KITTI-360'
 
     if 'KITTI360_DATASET' in os.environ:
@@ -335,6 +335,8 @@ if __name__ == "__main__":
     # loop over frames
     for frame in camera.frames:
         # perspective
+        if frame != 250:
+            continue
         if cam_id == 0 or cam_id == 1:
 
             # Check if the semantic mask file exists
@@ -622,7 +624,7 @@ if __name__ == "__main__":
             for ply in plys:
                 xyz, rgb, lbl, iid = load_points(ply)
                 # mask out lbl!= "building"
-                mask = lbl == 11
+                mask = lbl == 8
                 xyz = xyz[mask]
                 uv, d = camera.project_vertices(xyz, frame)
                 mask = np.logical_and(np.logical_and(d > 0, uv[0] > 0), uv[1] > 0)
@@ -634,33 +636,33 @@ if __name__ == "__main__":
 
                 combined_data = np.column_stack((uv[0][mask], uv[1][mask]))
                 print(combined_data.shape)
-                if combined_data.shape[0] > 0:
-                    # Normalize the combined data
-                    # It's important to scale the color information to be on a similar numerical range as the UV coordinates
-                    # Apply DBSCAN
-                    # The 'eps' and 'min_samples' parameters are crucial and should be tuned based on the specifics of the dataset
-                    dbscan = DBSCAN(eps=5, min_samples=10)
-                    clusters = dbscan.fit_predict(combined_data)
-
-                    # Determine the densest cluster
-                    cluster_counts = Counter(clusters)
-                    # Exclude noise points which are labeled as -1
-                    if -1 in cluster_counts:
-                        del cluster_counts[-1]
-                    densest_cluster_id = cluster_counts.most_common(1)[0][0]
-
-                    # Get the indices of the points in the densest cluster
-                    densest_cluster_indices = np.where(clusters == densest_cluster_id)[0]
-                    densest_cluster_points_uv = uv[:, mask][:, densest_cluster_indices]
-
-                    # Visualize the clustering results (optional)
-                    for i, point in enumerate(densest_cluster_points_uv.T):
-                        plt.plot(point[0], point[1], '.', markersize=1)
-
-                    plt.imshow(np_image2D)
-                    plt.show()
-
-                plt.plot(uv[0][mask], uv[1][mask], 'r.')
+                # if combined_data.shape[0] > 0:
+                #     # Normalize the combined data
+                #     # It's important to scale the color information to be on a similar numerical range as the UV coordinates
+                #     # Apply DBSCAN
+                #     # The 'eps' and 'min_samples' parameters are crucial and should be tuned based on the specifics of the dataset
+                #     dbscan = DBSCAN(eps=5, min_samples=10)
+                #     clusters = dbscan.fit_predict(combined_data)
+                #
+                #     # Determine the densest cluster
+                #     cluster_counts = Counter(clusters)
+                #     # Exclude noise points which are labeled as -1
+                #     if -1 in cluster_counts:
+                #         del cluster_counts[-1]
+                #     densest_cluster_id = cluster_counts.most_common(1)[0][0]
+                #
+                #     # Get the indices of the points in the densest cluster
+                #     densest_cluster_indices = np.where(clusters == densest_cluster_id)[0]
+                #     densest_cluster_points_uv = uv[:, mask][:, densest_cluster_indices]
+                #
+                #     # Visualize the clustering results (optional)
+                #     for i, point in enumerate(densest_cluster_points_uv.T):
+                #         plt.plot(point[0], point[1], '.', markersize=1)
+                #
+                #     plt.imshow(np_image2D)
+                #     plt.show()
+                plt.imshow(np_image2D)
+                plt.plot(uv[0][mask], uv[1][mask], 'r.', markersize=0.5)
                 # break
 
 

@@ -93,6 +93,10 @@ def parse_arguments():
     parser.add_argument("--epochs", type=int, default=16)
     parser.add_argument("--lr_gamma", type=float32, default=1.0)
 
+    # use semantic head
+    parser.add_argument("--use_semantic_head", action="store_true")
+    parser.add_argument("--clip_text_freeze", type=bool, default=True)
+
     args = parser.parse_args()
     try:
         args.num_distractors = int(args.num_distractors)

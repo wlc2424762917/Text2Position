@@ -23,7 +23,7 @@ def get_mlp(channels: List[int], add_batchnorm: bool = True) -> nn.Sequential:
         return nn.Sequential(
             *[
                 nn.Sequential(
-                    nn.Linear(channels[i - 1], channels[i]), nn.BatchNorm1d(channels[i]), nn.ReLU()
+                    nn.Linear(channels[i - 1], channels[i]), nn.BatchNorm1d(channels[i]), nn.GELU()
                 )
                 for i in range(1, len(channels))
             ]
@@ -31,7 +31,7 @@ def get_mlp(channels: List[int], add_batchnorm: bool = True) -> nn.Sequential:
     else:
         return nn.Sequential(
             *[
-                nn.Sequential(nn.Linear(channels[i - 1], channels[i]), nn.ReLU())
+                nn.Sequential(nn.Linear(channels[i - 1], channels[i]), nn.GELU())
                 for i in range(1, len(channels))
             ]
         )
@@ -116,13 +116,19 @@ class Clip_LanguageEncoder(nn.Module):
         self.model, _ = clip.load(clip_version)
         self.model.eval()
 
-    def forward(self, descriptions):
-        with torch.no_grad():
+    def forward(self, descriptions, freeze=True):
+        if freeze:
+            with torch.no_grad():
+                text_inputs = torch.cat([clip.tokenize(desc) for desc in descriptions]).to(self.device)
+                # text_inputs.to(self.device)# [B, 77]
+                text_features = self.model.encode_text(text_inputs)  # [B, 512]
+                # text_features = F.normalize(text_features, dim=-1)
+                # convert to float32, but dont change device
+                text_features = text_features.type(torch.FloatTensor).to(self.device)
+                return text_features
+        else:
             text_inputs = torch.cat([clip.tokenize(desc) for desc in descriptions]).to(self.device)
-            # text_inputs.to(self.device)# [B, 77]
             text_features = self.model.encode_text(text_inputs)  # [B, 512]
-            # text_features = F.normalize(text_features, dim=-1)
-            # convert to float32, but dont change device
             text_features = text_features.type(torch.FloatTensor).to(self.device)
             return text_features
 
@@ -155,41 +161,53 @@ class TransformerWithMaxPool(nn.Module):
 
 
 class Clip_LanguageEncoder_TransformerFuser(nn.Module):
-    def __init__(self, clip_version):
+    def __init__(self, clip_version, clip_text_freeze=True):
         super(Clip_LanguageEncoder_TransformerFuser, self).__init__()
         self.model, _ = clip.load(clip_version)
-        self.model.eval()
+        self.clip_text_freeze = clip_text_freeze
+        if clip_text_freeze:
+            self.model.eval()
         self.transformerFuser = TransformerWithMaxPool(d_model=512, nhead=8, num_layers=6, dim_feedforward=2048)
 
     def forward(self, descriptions):
-        with torch.no_grad():
-            description_features = []
-            # for description in descriptions:
-            #     sentences = description.split('.')
-            #     sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
-            #
-            #     # Process each sentence
-            #     sentence_features = []
-            #     for sentence in sentences:
-            #         text_inputs = clip.tokenize(sentence).to(self.device)
-            #         text_features = self.model.encode_text(text_inputs)
-            #         sentence_features.append(text_features)
-            #
-            #     # Concatenate the features from all sentences
-            #     concatenated_features = torch.cat(sentence_features, dim=0)  # [N, 512]
-            #     # aggregate the features from all sentences
-            #     description_features.append(concatenated_features)
-            # description_features = torch.stack(description_features, dim=0)  # [B, N, 512]
+        if self.clip_text_freeze:
+            with torch.no_grad():
+                description_features = []
+                # for description in descriptions:
+                #     sentences = description.split('.')
+                #     sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
+                #
+                #     # Process each sentence
+                #     sentence_features = []
+                #     for sentence in sentences:
+                #         text_inputs = clip.tokenize(sentence).to(self.device)
+                #         text_features = self.model.encode_text(text_inputs)
+                #         sentence_features.append(text_features)
+                #
+                #     # Concatenate the features from all sentences
+                #     concatenated_features = torch.cat(sentence_features, dim=0)  # [N, 512]
+                #     # aggregate the features from all sentences
+                #     description_features.append(concatenated_features)
+                # description_features = torch.stack(description_features, dim=0)  # [B, N, 512]
 
-            # accelerated version
-            # Preprocess descriptions to collect all sentences
+                # accelerated version
+                # Preprocess descriptions to collect all sentences
+                all_sentences = [sentence.strip() for description in descriptions for sentence in description.split('.')
+                                 if sentence.strip()]
+                # Tokenize all sentences in one go
+                all_text_inputs = torch.cat([clip.tokenize(sentence).to(self.device) for sentence in all_sentences])  # [B*N, 77]
+                # Encode all sentences in one go
+                all_text_features = self.model.encode_text(all_text_inputs)  # [B*N, 512]
+                # Aggregate features for each description
+        else:
             all_sentences = [sentence.strip() for description in descriptions for sentence in description.split('.')
                              if sentence.strip()]
             # Tokenize all sentences in one go
-            all_text_inputs = torch.cat([clip.tokenize(sentence).to(self.device) for sentence in all_sentences])  # [B*N, 77]
+            all_text_inputs = torch.cat(
+                [clip.tokenize(sentence).to(self.device) for sentence in all_sentences])  # [B*N, 77]
             # Encode all sentences in one go
             all_text_features = self.model.encode_text(all_text_inputs)  # [B*N, 512]
-            # Aggregate features for each description
+
         description_features = []
         start_index = 0
         for description in descriptions:
@@ -204,7 +222,7 @@ class Clip_LanguageEncoder_TransformerFuser(nn.Module):
         # convert to [N, B, 512]
         description_features = description_features.transpose(0, 1)
         description_features = description_features.type(torch.FloatTensor).to(self.device)
-        # inter-intra transformer fusion
+        # inter transformer fusion
         fused_description_features = self.transformerFuser(description_features)
         # normalize
         # fused_description_features = F.normalize(fused_description_features, dim=-1)
