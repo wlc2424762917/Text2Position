@@ -168,11 +168,11 @@ class CellRetrievalNetwork(torch.nn.Module):
                 x = self.graph1(embeddings, batch)
                 x = gnn.global_mean_pool(x, batch)
                 x = self.lin(x)
-        elif self.only_clip_semantic_feature and not self.use_relation_transformer:
+        elif (self.only_clip_semantic_feature or self.use_clip_semantic_feature) and not self.use_relation_transformer:
             x = embeddings.to(self.device)
             x = self.attn_pooling(x, batch)
             x = self.final_linear(x)
-        elif self.only_clip_semantic_feature and self.use_relation_transformer:
+        elif (self.only_clip_semantic_feature or self.use_clip_semantic_feature) and self.use_relation_transformer:
             x = embeddings.to(self.device)
             x = self.attn_pooling(x, batch, relation_embedding)
         elif self.use_relation_transformer:

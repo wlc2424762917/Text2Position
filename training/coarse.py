@@ -47,7 +47,7 @@ def train_epoch(model, dataloader, args):
         batch_size = len(batch["texts"])
         optimizer.zero_grad()
         # anchor = model.module.encode_text(batch["texts"])
-        anchor_objects, clip_feature_objects = model.module.encode_text_objects(batch["texts_objects"])  # with linear layer(512->256) / without linear layer
+        # anchor_objects, clip_feature_objects = model.module.encode_text_objects(batch["texts_objects"])  # with linear layer(512->256) / without linear layer
         anchor_submap, clip_feature_submap = model.module.encode_text_submap(batch["texts_submap"])
         if args.use_semantic_head:
             positive, sem_pred = model.module.encode_objects(batch["objects"], batch["object_points"])
@@ -71,7 +71,7 @@ def train_epoch(model, dataloader, args):
         if args.use_semantic_head:
             # print("use semantic head")
             semantic_loss = criterion_class(sem_pred, batch["objects"])
-            loss += 0.2 * semantic_loss
+            loss += 0.5 * semantic_loss
         loss.backward()
         optimizer.step()
 
@@ -143,7 +143,12 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
     # get the known classes for sematic prediction evaluation
     if args.use_semantic_head:
         known_classes = dataloader.dataset.get_known_classes()
+        known_classes = {c: (i + 1) for i, c in enumerate(known_classes)}
+        known_classes["<unk>"] = 0
+
         class_correct = {classname: 0 for classname in known_classes}
+        print(f"known_classes: {known_classes}")
+        print(f"class_correct: {class_correct}")
         class_total = {classname: 0 for classname in known_classes}
 
     # Encode the database side
@@ -363,9 +368,6 @@ if __name__ == "__main__":
 
         for epoch in range(1, args.epochs + 1):
             # dataset_train.reset_seed() #OPTION: re-setting seed leads to equal data at every epoch
-            val_acc, val_acc_close, val_retrievals = eval_epoch(model, dataloader_val, args)
-            time_end_eval = time.time()
-
             time_start_epoch = time.time()
 
             loss, train_batches = train_epoch(model, dataloader_train, args)
@@ -373,32 +375,33 @@ if __name__ == "__main__":
             time_end_epoch = time.time()
             print(f"Epoch {epoch} in {time_end_epoch - time_start_epoch:0.2f}.")
 
-            time_start_eval = time.time()
-            # train_acc, train_acc_close, train_retrievals = eval_epoch(
-            #     model, dataloader_train, args
-            # )  # TODO/CARE: Is this ok? Send in batches again?
-            val_acc, val_acc_close, val_retrievals = eval_epoch(model, dataloader_val, args)
-            time_end_eval = time.time()
-            print(f"Evaluation in {time_end_eval - time_start_eval:0.2f}.")
+            if epoch == 0 or epoch > 10:
+                time_start_eval = time.time()
+                # train_acc, train_acc_close, train_retrievals = eval_epoch(
+                #     model, dataloader_train, args
+                # )  # TODO/CARE: Is this ok? Send in batches again?
+                val_acc, val_acc_close, val_retrievals = eval_epoch(model, dataloader_val, args)
+                time_end_eval = time.time()
+                print(f"Evaluation in {time_end_eval - time_start_eval:0.2f}.")
 
-            key = lr
-            dict_loss[key].append(loss)
-            for k in args.top_k:
-                # dict_acc[k][key].append(train_acc[k])
-                dict_acc_val[k][key].append(val_acc[k])
-                dict_acc_val_close[k][key].append(val_acc_close[k])
+                key = lr
+                dict_loss[key].append(loss)
+                for k in args.top_k:
+                    # dict_acc[k][key].append(train_acc[k])
+                    dict_acc_val[k][key].append(val_acc[k])
+                    dict_acc_val_close[k][key].append(val_acc_close[k])
 
-            scheduler.step()
-            print(f"\t lr {lr:0.4} loss {loss:0.2f} epoch {epoch} train-acc: ", end="")
-            # for k, v in train_acc.items():
-            #     print(f"{k}-{v:0.2f} ", end="")
-            print("val-acc: ", end="")
-            for k, v in val_acc.items():
-                print(f"{k}-{v:0.2f} ", end="")
-            print("val-acc-close: ", end="")
-            for k, v in val_acc_close.items():
-                print(f"{k}-{v:0.2f} ", end="")
-            print("\n", flush=True)
+                scheduler.step()
+                print(f"\t lr {lr:0.4} loss {loss:0.2f} epoch {epoch} train-acc: ", end="")
+                # for k, v in train_acc.items():
+                #     print(f"{k}-{v:0.2f} ", end="")
+                print("val-acc: ", end="")
+                for k, v in val_acc.items():
+                    print(f"{k}-{v:0.2f} ", end="")
+                print("val-acc-close: ", end="")
+                for k, v in val_acc_close.items():
+                    print(f"{k}-{v:0.2f} ", end="")
+                print("\n", flush=True)
 
             # Saving best model (w/ early stopping)
             if epoch >= args.epochs // 4:

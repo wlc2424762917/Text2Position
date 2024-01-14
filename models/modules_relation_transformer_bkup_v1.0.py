@@ -285,8 +285,7 @@ class RelationMultiHeadSelfAttention(nn.Module):
         assert (
             self.head_dim * heads == embed_size
         ), "Embedding size needs to be divisible by heads"
-        # 初始化CLS token的嵌入
-        self.cls_token = nn.Parameter(torch.randn(1, 1, embed_size))
+
         self.values = nn.Linear(self.head_dim, self.head_dim, bias=False)
         self.keys = nn.Linear(self.head_dim, self.head_dim, bias=False)
         self.queries = nn.Linear(self.head_dim, self.head_dim, bias=False)
@@ -296,14 +295,6 @@ class RelationMultiHeadSelfAttention(nn.Module):
 
     def forward(self, values, keys, query, mask, relation):
         N = query.shape[0]
-
-        # 使用CLS token嵌入
-        cls_tokens = self.cls_token.repeat(N, 1, 1)  # 复制CLS token以匹配批次大小
-        values = torch.cat([cls_tokens, values], dim=1)
-        keys = torch.cat([cls_tokens, keys], dim=1)
-        query = torch.cat([cls_tokens, query], dim=1)
-
-
         value_len, key_len, query_len = values.shape[1], keys.shape[1], query.shape[1]
 
         # Split the embedding into self.heads different pieces
