@@ -9,13 +9,36 @@ import cv2
 from copy import deepcopy
 from dataloading.kitti360pose.cells import *
 
-with open("/home/wanglichao/Text2Position/data/k360_text_30-10_gridCells_pd10_pc4_shiftPoses_all_nm-6/cells/2013_05_28_drive_0002_sync.pkl", "rb") as f:
-    cells = pkl.load(f)
-    print(len(cells))
-    print(cells[0])
-    print(cells[0].objects[0])
-    print(cells[0].objects[0].xyz.shape)
-    print(cells[0].objects[0].feature_2d)
+# with open("/home/wanglichao/Text2Position/data/k360_text_30-10_gridCells_pd10_pc4_shiftPoses_all_nm-6/cells/2013_05_28_drive_0000_sync.pkl", "rb") as f:
+#     cells = pkl.load(f)
+#     print(len(cells))
+#     print(cells[69], cells[69].get_center())
+#     for obj in cells[69].objects:
+#         print(obj, obj.id, obj.instance_id)
+#     # print(cells[0])
+#     # print(cells[0].objects[0])
+#     # print(cells[0].objects[0].xyz.shape)
+#     # print(cells[0].objects[0].feature_2d)
+# #
+# with open(
+#         "/home/wanglichao/Text2Position/data/k360_30-10_scG_pd10_pc4_spY_all/cells/2013_05_28_drive_0000_sync.pkl",
+#         "rb") as f:
+#     cells = pkl.load(f)
+#     print(len(cells))
+#     print(cells[69], cells[69].get_center())
+#     for obj in cells[69].objects:
+#         print(obj, obj.id, obj.instance_id)
+#     # print(cells[0].objects[0])
+#     # print(cells[0].objects[0].xyz.shape)
+
+# with open(
+#         "/home/wanglichao/Text2Position/data/k360_30-10_scG_pd10_pc4_spY_all/cells/2013_05_28_drive_0000_sync.pkl",
+#         "rb") as f:
+#     cells = pkl.load(f)
+#     for cell in cells:
+#         for obj in cell.objects:
+#             if obj.instance_id == 17144:
+#                 print(obj, obj.id, obj.instance_id)
 
 # with open("/home/wanglichao/Text2Position/data/k360_30-10_scG_pd10_pc4_spY_all/poses/2013_05_28_drive_0000_sync.pkl", "rb") as f:
 #     poses = pkl.load(f)
@@ -31,13 +54,57 @@ with open("/home/wanglichao/Text2Position/data/k360_text_30-10_gridCells_pd10_pc
 #     print(len(objs))
 #     n_2d_feature = 0
 #     for obj in objs:
-#         print(obj)
-#         if obj.feature_2d is not None:
-#             n_2d_feature += 1
-#             print(obj.feature_2d.shape)
-#         else:
-#             print("None 2D feature")
-#     print(f"n_2d_feature: {n_2d_feature} out of {len(objs)}")
+#         print(obj, obj.instance_id, obj.label, obj.get_center(), obj.xyz.shape)
+
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import numpy as np
+import pickle as pkl
+import clip
+
+
+clip_model = clip.load("ViT-B/32", device="cuda" if torch.cuda.is_available() else "cpu")
+# 加载数据
+with open("/home/wanglichao/KITTI-360/objects/2013_05_28_drive_0003_sync.pkl", "rb") as f:
+    objs = pkl.load(f)
+
+# 创建3D图形
+all_xyz = np.concatenate([obj.xyz for obj in objs], axis=0)
+global_min_xyz = np.min(all_xyz, axis=0)
+global_max_xyz = np.max(all_xyz, axis=0)
+print(global_min_xyz, global_max_xyz)
+# 遍历每个对象并绘制它的点云
+
+for obj in objs:
+
+    xyz = obj.xyz  # 假设这是点云坐标的数组
+    rgb = obj.rgb  # 假设这是点云颜色的数组
+
+    feature_2d = obj.feature_2d
+    feature_text = clip_model.encode_text(clip.tokenize(obj.label).to("cuda")).detach().cpu().numpy()
+
+
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111, projection='3d')
+    # # print(obj.instance_id, obj.label, xyz.shape)
+    # # ax.scatter(normalized_xyz[:, 0], normalized_xyz[:, 1], normalized_xyz[:, 2], s=1)  # 绘制正则化的点云
+    # ax.scatter(xyz[:, 0], xyz[:, 1], xyz[:, 2])  # 绘制正则化的点云
+    #
+    # # 设置轴标签
+    # ax.set_xlabel('X Axis')
+    # ax.set_ylabel('Y Axis')
+    # ax.set_zlabel('Z Axis')
+    # ax.set_title(f"{obj.instance_id}, {obj.label}")
+    #
+    # ax.set_xlim([global_min_xyz[0], global_max_xyz[0]])
+    # ax.set_ylim([global_min_xyz[1], global_max_xyz[1]])
+    # ax.set_zlim([global_min_xyz[2], global_max_xyz[2]])
+    #
+    # # 显示图形
+    # plt.show()
+    # plt.close()
+
+
 
 # base_path = "/home/wanglichao/Text2Pos-CVPR2022/data/k360_30-10_scG_pd10_pc4_spY_all/"
 # batch_size = 64

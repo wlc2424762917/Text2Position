@@ -379,6 +379,7 @@ class MaxPoolRelationMultiHeadSelfAttention(nn.Module):
 
         return attn_output
 
+
     @property
     def device(self):
         return next(self.multihead_attn.parameters()).device

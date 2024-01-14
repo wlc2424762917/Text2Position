@@ -3,8 +3,8 @@ from torch import nn
 from transformers import T5Tokenizer, T5Model
 
 # 步骤 2: 加载T5模型
-tokenizer = T5Tokenizer.from_pretrained('t5-small')
-t5_model = T5Model.from_pretrained('t5-small')
+tokenizer = T5Tokenizer.from_pretrained('/home/wanglichao/Text2Position/flan-t5-base')
+t5_model = T5Model.from_pretrained('/home/wanglichao/Text2Position/flan-t5-basel')
 
 # 步骤 3: 定义Intra-Inter Transformer模型
 class IntraInterTransformer(nn.Module):

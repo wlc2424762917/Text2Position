@@ -78,8 +78,10 @@ def train_epoch(model, dataloader, args):
         epoch_losses.append(loss.item())
         batches.append(batch)
 
-        if i_batch % 80 == 0:
-            print(f"\r{i_batch}/{len(dataloader)} loss {loss.item():0.2f}", end="", flush=True)
+        if i_batch % 80 == 0 and not args.use_semantic_head:
+            print(f"\r{i_batch}/{len(dataloader)} loss {loss.item():0.2f}", end="", flush=False)
+        elif i_batch % 80 == 0 and args.use_semantic_head:
+            print(f"\r{i_batch}/{len(dataloader)} loss {loss.item():0.2f}, semantic loss {semantic_loss.item():0.2f}", end="", flush=False)
     return np.mean(epoch_losses), batches
 
 
@@ -142,7 +144,7 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
     index_offset = 0
     for batch in cells_dataloader:
         if args.use_semantic_head:
-            cell_enc, _= model.encode_objects(batch["objects"], batch["object_points"])
+            cell_enc, sem_pred = model.encode_objects(batch["objects"], batch["object_points"])
         else:
             cell_enc = model.encode_objects(batch["objects"], batch["object_points"])
         batch_size = len(cell_enc)

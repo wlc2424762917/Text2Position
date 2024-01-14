@@ -41,10 +41,15 @@ CUDA_VISIBLE_DEVICES=5 python -m training.coarse --batch_size 64 --learning_rate
 # language clip_transformer no_pc_augment class embedding clip loss lr 1e-4 clip_2D_text_feature
 CUDA_VISIBLE_DEVICES=3 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_text_30-10_gridCells_pd10_pc4_shiftPoses_all_nm-6/ --no_pc_augment --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --only_clip_semantic_feature --use_features color position --epochs 36
 
-CUDA_VISIBLE_DEVICES=2 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_text_30-10_gridCells_pd10_pc4_shiftPoses_all_nm-6/ --no_pc_augment --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --use_semantic_head --use_features color position --epochs 36
+CUDA_VISIBLE_DEVICES=2 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --no_pc_augment --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --use_semantic_head --use_features color position --epochs 36
+
+
+CUDA_VISIBLE_DEVICES=7 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all_clip_text/ --no_pc_augment --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --only_clip_semantic_feature --use_features color position --epochs 36
+
+
 
 # language clip_transformer no_pc_augment class embedding clip loss lr 1e-4 no class embedding
-CUDA_VISIBLE_DEVICES=4 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_text_30-10_gridCells_pd10_pc4_shiftPoses_all_nm-6/ --no_pc_augment --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --use_features color position class --epochs 20
+CUDA_VISIBLE_DEVICES=4 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --no_pc_augment --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --use_edge_conv --use_features color position class --epochs 20
 
 
 
@@ -59,9 +64,10 @@ python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256
 
 
 
-CUDA_VISIBLE_DEVICES=6 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --no_pc_augment --class_embed --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --clip_text_freeze False --epochs 36
+CUDA_VISIBLE_DEVICES=6 python -m training.coarse --batch_size 64 --learning_rate 0.00002 --embed_dim 256 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --no_pc_augment --class_embed --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --clip_text_freeze False --epochs 36
 
 
 # fine stage
 CUDA_VISIBLE_DEVICES=5 python -m training.fine --batch_size 32 --learning_rate 0.0003 --embed_dim 128 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/
 CUDA_VISIBLE_DEVICES=1 nohup python -m training.fine --batch_size 32 --learning_rate 0.0003 --embed_dim 128 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ >>log_fine_baseline &
+
