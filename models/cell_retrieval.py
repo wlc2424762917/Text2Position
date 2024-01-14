@@ -36,6 +36,7 @@ class CellRetrievalNetwork(torch.nn.Module):
         self.variation = args.variation
         self.use_edge_conv = args.use_edge_conv
         self.only_clip_semantic_feature = args.only_clip_semantic_feature
+        self.use_clip_semantic_feature = args.use_clip_semantic_feature
         self.use_relation_transformer = args.use_relation_transformer
         self.args = args
         embed_dim = self.embed_dim
@@ -59,13 +60,13 @@ class CellRetrievalNetwork(torch.nn.Module):
                     get_mlp([2 * embed_dim, embed_dim, embed_dim], add_batchnorm=True), k=8, aggr="mean"
                 )  # Originally: k=4
                 self.lin = get_mlp([embed_dim, embed_dim, embed_dim])
-        elif args.only_clip_semantic_feature and not args.use_relation_transformer:
+        elif (args.only_clip_semantic_feature or args.use_clip_semantic_feature) and not args.use_relation_transformer:
             self.attn_pooling = MaxPoolMultiHeadSelfAttention(embed_dim+512, num_heads=8)
             self.final_linear = nn.Linear(embed_dim + 512, embed_dim)
-        elif args.only_clip_semantic_feature and args.use_relation_transformer:
+        elif (args.only_clip_semantic_feature or args.use_clip_semantic_feature) and args.use_relation_transformer:
             self.attn_pooling = MaxPoolRelationMultiHeadSelfAttention(embed_dim+512, num_heads=8)
             self.final_linear = nn.Linear(embed_dim + 512, embed_dim)
-        elif args.use_relation_transformer and not args.only_clip_semantic_feature:
+        elif args.use_relation_transformer and not (args.only_clip_semantic_feature or args.use_clip_semantic_feature):
             self.attn_pooling = MaxPoolRelationMultiHeadSelfAttention(embed_dim, num_heads=8)
         else:  # use attention + pooling
             self.attn_pooling = MaxPoolMultiHeadSelfAttention(embed_dim, num_heads=8)

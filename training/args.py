@@ -72,6 +72,7 @@ def parse_arguments():
 
     # use clip feature as instance semantic feature
     parser.add_argument("--only_clip_semantic_feature", action="store_true")
+    parser.add_argument("--use_clip_semantic_feature", action="store_true")
 
     # language encoder
     parser.add_argument("--language_encoder", type=str, default="LSTM")

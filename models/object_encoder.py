@@ -222,7 +222,7 @@ class ObjectEncoder(torch.nn.Module):
             embeddings = embeddings[0]
 
         # if use clip feature as instance semantic feature, concat clip feature with object embedding
-        if self.args.only_clip_semantic_feature:
+        if self.args.only_clip_semantic_feature or self.args.use_clip_semantic_feature:
             clip_2d_features = []
             for objects_sample in objects:
                 clip_2d_features.extend([obj.feature_2d for obj in objects_sample])
