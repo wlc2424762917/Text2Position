@@ -93,8 +93,8 @@ class CellRetrievalNetwork(torch.nn.Module):
         """
         Obj Textual path 
         """
-        ## TODO: add a new path for object and text
-        self.obj_language_encoder = Clip_LanguageEncoder_TransformerFuser(clip_version="ViT-B/32")
+        # ## TODO: add a new path for object and text
+        # self.obj_language_encoder = Clip_LanguageEncoder_TransformerFuser(clip_version="ViT-B/32")
 
 
         print(

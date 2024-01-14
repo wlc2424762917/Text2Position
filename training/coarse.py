@@ -140,11 +140,38 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
         index_offset += batch_size
     # print(f"Encoded {len(text_encodings)} query texts in {time.time() - t0:0.2f}.")
 
+    # get the known classes for sematic prediction evaluation
+    if args.use_semantic_head:
+        known_classes = dataloader.dataset.get_known_classes()
+        class_correct = {classname: 0 for classname in known_classes}
+        class_total = {classname: 0 for classname in known_classes}
+
     # Encode the database side
     index_offset = 0
     for batch in cells_dataloader:
         if args.use_semantic_head:
             cell_enc, sem_pred = model.encode_objects(batch["objects"], batch["object_points"])
+
+            # 将预测转换为类别索引
+            sem_pred_id = torch.argmax(sem_pred, dim=1)
+            sem_pred_id = sem_pred_id.cpu().detach().numpy()
+
+            # 为真实标签生成类别索引
+            class_indices = []
+            for i_batch, objects_sample in enumerate(batch["objects"]):
+                for obj in objects_sample:
+                    class_idx = known_classes.get(obj.label, 0)
+                    class_indices.append(class_idx)
+            class_indices = np.array(class_indices)
+
+            # 计算每个类别的准确率
+            for true_label, predicted_label in zip(class_indices, sem_pred_id):
+                true_classname = [name for name, idx in known_classes.items() if idx == true_label][0]
+                predicted_classname = [name for name, idx in known_classes.items() if idx == predicted_label][0]
+                class_total[true_classname] += 1
+                if true_classname == predicted_classname:
+                    class_correct[true_classname] += 1
+
         else:
             cell_enc = model.encode_objects(batch["objects"], batch["object_points"])
         batch_size = len(cell_enc)
@@ -156,6 +183,15 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
         )
         db_cell_ids[index_offset : index_offset + batch_size] = np.array(batch["cell_ids"])
         index_offset += batch_size
+
+    if args.use_semantic_head:
+        # 输出每个类别的准确率
+        for classname in known_classes:
+            if class_total[classname] > 0:
+                accuracy = 100 * class_correct[classname] / class_total[classname]
+                print(f"Accuracy of {classname}: {accuracy:.2f}%")
+            else:
+                print(f"Accuracy of {classname}: N/A (No samples)")
 
     top_retrievals = {}  # {query_idx: top_cell_ids}
     for query_idx in range(len(text_encodings)):
@@ -327,6 +363,9 @@ if __name__ == "__main__":
 
         for epoch in range(1, args.epochs + 1):
             # dataset_train.reset_seed() #OPTION: re-setting seed leads to equal data at every epoch
+            val_acc, val_acc_close, val_retrievals = eval_epoch(model, dataloader_val, args)
+            time_end_eval = time.time()
+
             time_start_epoch = time.time()
 
             loss, train_batches = train_epoch(model, dataloader_train, args)
@@ -335,9 +374,9 @@ if __name__ == "__main__":
             print(f"Epoch {epoch} in {time_end_epoch - time_start_epoch:0.2f}.")
 
             time_start_eval = time.time()
-            train_acc, train_acc_close, train_retrievals = eval_epoch(
-                model, dataloader_train, args
-            )  # TODO/CARE: Is this ok? Send in batches again?
+            # train_acc, train_acc_close, train_retrievals = eval_epoch(
+            #     model, dataloader_train, args
+            # )  # TODO/CARE: Is this ok? Send in batches again?
             val_acc, val_acc_close, val_retrievals = eval_epoch(model, dataloader_val, args)
             time_end_eval = time.time()
             print(f"Evaluation in {time_end_eval - time_start_eval:0.2f}.")
@@ -345,14 +384,14 @@ if __name__ == "__main__":
             key = lr
             dict_loss[key].append(loss)
             for k in args.top_k:
-                dict_acc[k][key].append(train_acc[k])
+                # dict_acc[k][key].append(train_acc[k])
                 dict_acc_val[k][key].append(val_acc[k])
                 dict_acc_val_close[k][key].append(val_acc_close[k])
 
             scheduler.step()
             print(f"\t lr {lr:0.4} loss {loss:0.2f} epoch {epoch} train-acc: ", end="")
-            for k, v in train_acc.items():
-                print(f"{k}-{v:0.2f} ", end="")
+            # for k, v in train_acc.items():
+            #     print(f"{k}-{v:0.2f} ", end="")
             print("val-acc: ", end="")
             for k, v in val_acc.items():
                 print(f"{k}-{v:0.2f} ", end="")
