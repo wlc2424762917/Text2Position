@@ -18,14 +18,13 @@ import os.path as osp
 
 from models.cell_retrieval import CellRetrievalNetwork
 
-from datapreparation.kitti360pose.utils import SCENE_NAMES, SCENE_NAMES_TRAIN, SCENE_NAMES_VAL
+from datapreparation.kitti360pose.utils import SCENE_NAMES, SCENE_NAMES_TRAIN, SCENE_NAMES_VAL, CLASS_TO_INDEX
 from datapreparation.kitti360pose.utils import COLOR_NAMES as COLOR_NAMES_K360
 from dataloading.kitti360pose.cells import Kitti360CoarseDatasetMulti, Kitti360CoarseDataset
 
 from training.args import parse_arguments
 from training.plots import plot_metrics
 from training.losses import MatchingLoss, PairwiseRankingLoss, HardestRankingLoss, ClipLoss, SemanticLoss
-from training.utils import plot_retrievals
 
 
 def train_epoch(model, dataloader, args):
@@ -143,8 +142,7 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
     # get the known classes for sematic prediction evaluation
     if args.use_semantic_head:
         known_classes = dataloader.dataset.get_known_classes()
-        known_classes = {c: (i + 1) for i, c in enumerate(known_classes)}
-        known_classes["<unk>"] = 0
+        known_classes = CLASS_TO_INDEX
 
         class_correct = {classname: 0 for classname in known_classes}
         print(f"known_classes: {known_classes}")
@@ -165,7 +163,7 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
             class_indices = []
             for i_batch, objects_sample in enumerate(batch["objects"]):
                 for obj in objects_sample:
-                    class_idx = known_classes.get(obj.label, 0)
+                    class_idx = known_classes.get(obj.label)
                     class_indices.append(class_idx)
             class_indices = np.array(class_indices)
 
@@ -361,7 +359,9 @@ if __name__ == "__main__":
         if args.ranking_loss == "CLIP":
             criterion = ClipLoss()
 
-        criterion_class = SemanticLoss(dataset_train.get_known_classes())
+        criterion_class = SemanticLoss(CLASS_TO_INDEX)
+        # print("criterion_class:", dataset_train.get_known_classes(), len(dataset_train.get_known_classes()))
+        # quit()
         criterion_color = nn.CrossEntropyLoss()
 
         scheduler = optim.lr_scheduler.ExponentialLR(optimizer, args.lr_gamma)
@@ -375,7 +375,7 @@ if __name__ == "__main__":
             time_end_epoch = time.time()
             print(f"Epoch {epoch} in {time_end_epoch - time_start_epoch:0.2f}.")
 
-            if epoch == 0 or epoch > 10:
+            if epoch == 1 or epoch >= args.epochs // 4:
                 time_start_eval = time.time()
                 # train_acc, train_acc_close, train_retrievals = eval_epoch(
                 #     model, dataloader_train, args

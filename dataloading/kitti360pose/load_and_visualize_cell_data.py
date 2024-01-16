@@ -63,46 +63,50 @@ import pickle as pkl
 import clip
 
 
-clip_model = clip.load("ViT-B/32", device="cuda" if torch.cuda.is_available() else "cpu")
 # 加载数据
-with open("/home/wanglichao/KITTI-360/objects/2013_05_28_drive_0003_sync.pkl", "rb") as f:
-    objs = pkl.load(f)
+with open("/home/wanglichao/Text2Position/data/k360_30-10_scG_pd10_pc4_spY_all/cells/2013_05_28_drive_0000_sync.pkl", "rb") as f:
+    cells = pkl.load(f)
+    cell = cells[100]
+    objs = cell.objects
 
-# 创建3D图形
-all_xyz = np.concatenate([obj.xyz for obj in objs], axis=0)
-global_min_xyz = np.min(all_xyz, axis=0)
-global_max_xyz = np.max(all_xyz, axis=0)
-print(global_min_xyz, global_max_xyz)
-# 遍历每个对象并绘制它的点云
+    # 创建3D图形
+    all_xyz = np.concatenate([obj.xyz for obj in objs], axis=0)
+    global_min_xyz = np.min(all_xyz, axis=0)
+    global_max_xyz = np.max(all_xyz, axis=0)
+    print(global_min_xyz, global_max_xyz)
+    # 遍历每个对象并绘制它的点云
 
-for obj in objs:
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
 
-    xyz = obj.xyz  # 假设这是点云坐标的数组
-    rgb = obj.rgb  # 假设这是点云颜色的数组
+    for obj in objs:
 
-    feature_2d = obj.feature_2d
-    feature_text = clip_model.encode_text(clip.tokenize(obj.label).to("cuda")).detach().cpu().numpy()
+        xyz = obj.xyz  # 假设这是点云坐标的数组
+        rgb = obj.rgb  # 假设这是点云颜色的数组
 
+        if rgb.max() > 1:
+            rgb = rgb / 255.0
 
-    # fig = plt.figure()
-    # ax = fig.add_subplot(111, projection='3d')
-    # # print(obj.instance_id, obj.label, xyz.shape)
-    # # ax.scatter(normalized_xyz[:, 0], normalized_xyz[:, 1], normalized_xyz[:, 2], s=1)  # 绘制正则化的点云
-    # ax.scatter(xyz[:, 0], xyz[:, 1], xyz[:, 2])  # 绘制正则化的点云
-    #
-    # # 设置轴标签
-    # ax.set_xlabel('X Axis')
-    # ax.set_ylabel('Y Axis')
-    # ax.set_zlabel('Z Axis')
-    # ax.set_title(f"{obj.instance_id}, {obj.label}")
-    #
-    # ax.set_xlim([global_min_xyz[0], global_max_xyz[0]])
-    # ax.set_ylim([global_min_xyz[1], global_max_xyz[1]])
-    # ax.set_zlim([global_min_xyz[2], global_max_xyz[2]])
-    #
-    # # 显示图形
-    # plt.show()
-    # plt.close()
+            # 使用 RGB 颜色绘制点云
+        ax.scatter(xyz[:, 0], xyz[:, 1], xyz[:, 2], c=rgb)
+
+        # print(obj.instance_id, obj.label, xyz.shape)
+        # ax.scatter(normalized_xyz[:, 0], normalized_xyz[:, 1], normalized_xyz[:, 2], s=1)  # 绘制正则化的点云
+        # ax.scatter(xyz[:, 0], xyz[:, 1], xyz[:, 2])  # 绘制正则化的点云
+
+        # 设置轴标签
+        ax.set_xlabel('X Axis')
+        ax.set_ylabel('Y Axis')
+        ax.set_zlabel('Z Axis')
+        # ax.set_title(f"{obj.instance_id}, {obj.label}")
+
+    ax.set_xlim([global_min_xyz[0], global_max_xyz[0]])
+    ax.set_ylim([global_min_xyz[1], global_max_xyz[1]])
+    ax.set_zlim([global_min_xyz[2], global_max_xyz[2]])
+
+    # 显示图形
+    plt.show()
+    plt.close()
 
 
 

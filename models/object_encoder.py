@@ -72,7 +72,7 @@ class ObjectEncoder(torch.nn.Module):
         self.mlp_merge = get_mlp([merged_embedding_dim, embed_dim])
 
         if args.use_semantic_head:
-            self.semantic_head = SemanticHead(embed_dim, 512, len(known_classes)+1)
+            self.semantic_head = SemanticHead(embed_dim, len(known_classes))
 
     def forward(self, objects: List[Object3d], object_points):
         """Features are currently normed before merging but not at the end.
@@ -111,11 +111,11 @@ class ObjectEncoder(torch.nn.Module):
                 for pyg_batch in object_points
             ]  # [B, obj_counts, PN_dim]
 
-            object_features = torch.cat(object_features, dim=0)  # [total_objects, PN_dim]
-            object_features = self.mlp_pointnet(object_features)
+            object_features_p = torch.cat(object_features, dim=0)  # [total_objects, PN_dim]
+            object_features = self.mlp_pointnet(object_features_p)
 
             if self.args.use_semantic_head:
-                object_features_sem = self.semantic_head(object_features)  # [total_objects, num_classes]
+                object_features_sem = self.semantic_head(object_features_p)  # [total_objects, num_classes]
                 # 还原batch [B, obj_counts, PN_dim]
                 # object_features_sem = torch.split(object_features, [pyg_batch.num_nodes for pyg_batch in object_points], dim=0)
                 # shape: [B, obj_counts, num_classes]
@@ -249,15 +249,11 @@ class ObjectEncoder(torch.nn.Module):
 
 
 class SemanticHead(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim):
+    def __init__(self, input_dim,  output_dim):
         super(SemanticHead, self).__init__()
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        self.fc3 = nn.Linear(hidden_dim, output_dim)
+        self.fc = nn.Linear(input_dim, output_dim)
 
     def forward(self, x):
-        x = F.gelu(self.fc1(x))
-        x = F.gelu(self.fc2(x))
-        x = self.fc3(x)
-        return F.softmax(x, dim=1)
+        x = self.fc(x)
+        return x
 

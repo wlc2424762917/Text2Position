@@ -285,7 +285,8 @@ class RelationMultiHeadSelfAttention(nn.Module):
         assert (
             self.head_dim * heads == embed_size
         ), "Embedding size needs to be divisible by heads"
-
+        # 初始化CLS token的嵌入
+        self.cls_token = nn.Parameter(torch.randn(1, 1, embed_size))
         self.values = nn.Linear(self.head_dim, self.head_dim, bias=False)
         self.keys = nn.Linear(self.head_dim, self.head_dim, bias=False)
         self.queries = nn.Linear(self.head_dim, self.head_dim, bias=False)
@@ -295,26 +296,41 @@ class RelationMultiHeadSelfAttention(nn.Module):
 
     def forward(self, values, keys, query, mask, relation):
         N = query.shape[0]
+        # 使用CLS token嵌入
+        cls_tokens = self.cls_token.repeat(N, 1, 1)  # 复制CLS token以匹配批次大小
+        values = torch.cat([cls_tokens, values], dim=1)
+        keys = torch.cat([cls_tokens, keys], dim=1)
+        query = torch.cat([cls_tokens, query], dim=1)
+
         value_len, key_len, query_len = values.shape[1], keys.shape[1], query.shape[1]
 
         # Split the embedding into self.heads different pieces
         values = values.reshape(N, value_len, self.heads, self.head_dim)
         keys = keys.reshape(N, key_len, self.heads, self.head_dim)
         queries = query.reshape(N, query_len, self.heads, self.head_dim)
-        relation = relation.reshape(N, query_len, key_len, self.heads, self.head_dim)
+        relation = relation.reshape(N, query_len - 1, key_len - 1, self.heads, self.head_dim)
 
         # Pool the relation matrix along rows and columns using max pooling
-        relation_row_pool, _ = relation.max(dim=-3, keepdim=False)  # (N, query_len, heads, head_dim)
-        relation_col_pool, _ = relation.max(dim=-4, keepdim=False)  #  (N, key_len, heads, head_dim)
+        relation_row_pool, _ = relation.max(dim=-3, keepdim=False)
+        relation_col_pool, _ = relation.max(dim=-4, keepdim=False)
 
         # Get q, k, v from linear transformations
         values = self.values(values)
         keys = self.keys(keys)
         queries = self.queries(queries)
 
-        # Add the pooled relation matrix to q and k
-        queries_with_relation = queries + relation_row_pool
-        keys_with_relation = keys + relation_col_pool
+        # Add the pooled relation matrix to q and k,
+        # 分离第一个元素和剩余部分
+        queries_first, queries_rest = queries[:, :1, :, :], queries[:, 1:, :, :]
+        keys_first, keys_rest = keys[:, :1, :, :], keys[:, 1:, :, :]
+
+        # 对剩余部分执行加法操作
+        queries_rest_with_relation = queries_rest + relation_row_pool
+        keys_rest_with_relation = keys_rest + relation_col_pool
+
+        # 重组queries和keys
+        queries_with_relation = torch.cat([queries_first, queries_rest_with_relation], dim=1)
+        keys_with_relation = torch.cat([keys_first, keys_rest_with_relation], dim=1)
 
         # Calculate the energy (qk^T)
         energy = torch.einsum('nqhd,nkhd->nhqk', queries_with_relation, keys_with_relation)
@@ -349,14 +365,14 @@ class MaxPoolRelationMultiHeadSelfAttention(nn.Module):
         # 初始化填充后的嵌入和掩码
         padded_embeddings = torch.zeros(len(batch.unique()), max_len, embeddings.size(-1))
         padded_relation = torch.zeros(len(batch.unique()), max_len, max_len, self.embed_dim)
-        mask = torch.ones(len(batch.unique()), max_len, max_len)
+        mask = torch.ones(len(batch.unique()), max_len+1, max_len+1) # consider the cls token
 
         # 对每个批次添加填充embedding, relation掩码, (B, max_len, D), (B, max_len, max_len, embed_dim)
         for i, b in enumerate(batch.unique()):
             # embedding padding
             batch_embeddings = embeddings[batch == b]
             padded_embeddings[i, :batch_embeddings.size(0)] = batch_embeddings
-            mask[i, :batch_embeddings.size(0), :batch_embeddings.size(0)] = 0  # 0表示有效值，1表示无效值
+            mask[i, :batch_embeddings.size(0)+1, :batch_embeddings.size(0)+1] = 0  # 0表示有效值，1表示无效值
             # relation embedding padding
             relation_len = relation[i].shape[0]
             # assert relation_len == sum(batch == b)
@@ -373,12 +389,12 @@ class MaxPoolRelationMultiHeadSelfAttention(nn.Module):
 
         # 应用多头自注意力机制
         attn_output = self.multihead_attn(padded_embeddings.to(self.device), padded_embeddings.to(self.device), padded_embeddings.to(self.device), mask.to(self.device), padded_relation.to(self.device))
+        # attn_output [B, max_len, D]
 
-        # 应用最大池化
-        attn_output = F.max_pool1d(attn_output.transpose(1, 2), attn_output.size(1)).squeeze(-1)
+        # 取global token
+        attn_output = attn_output[:, 0, :]  # [B, D]
 
         return attn_output
-
 
     @property
     def device(self):

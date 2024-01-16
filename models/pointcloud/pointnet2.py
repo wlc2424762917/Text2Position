@@ -107,7 +107,7 @@ class PointNet2(nn.Module):
 if __name__ == "__main__":
     transform = T.Compose([T.NormalizeScale(), T.RandomRotate(180, axis=2)])
     pos = torch.rand(10, 3)
-    print(pos)
+    # print(pos)
 
     x = torch.rand(10, 3)
     pos = torch.rand(10, 3)
@@ -115,6 +115,7 @@ if __name__ == "__main__":
 
     model = PointNet2(10, 3, EasyDict(pointnet_layers=3, pointnet_variation=0))
     # model = torch.load("/home/wanglichao/Text2Pos-CVPR2022/checkpoints/pointnet_acc0.86_lr1_p256.pth")
-    quit()
-    print(model)
+    # quit()
+    # print(model)
     out = model(EasyDict(x=x, pos=pos, batch=batch))
+    print(out.class_pred.shape)

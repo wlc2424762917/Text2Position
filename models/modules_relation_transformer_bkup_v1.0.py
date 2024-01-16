@@ -304,8 +304,8 @@ class RelationMultiHeadSelfAttention(nn.Module):
         relation = relation.reshape(N, query_len, key_len, self.heads, self.head_dim)
 
         # Pool the relation matrix along rows and columns using max pooling
-        relation_row_pool, _ = relation.max(dim=-2, keepdim=True)
-        relation_col_pool, _ = relation.max(dim=-3, keepdim=True)
+        relation_row_pool, _ = relation.max(dim=-3, keepdim=False)  # (N, query_len, heads, head_dim)
+        relation_col_pool, _ = relation.max(dim=-4, keepdim=False)  #  (N, key_len, heads, head_dim)
 
         # Get q, k, v from linear transformations
         values = self.values(values)

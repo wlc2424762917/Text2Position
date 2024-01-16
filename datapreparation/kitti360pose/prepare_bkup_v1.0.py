@@ -203,72 +203,88 @@ def project_3d_2d_feature(kitti360Path, sequence, objects, num_random_rounds=10,
 
                 # Combine the UV coordinates and color data for clustering
                 combined_data = np.column_stack((uv[0][mask], uv[1][mask]))
-                if combined_data.shape[0] > 5:
+                if combined_data.shape[0] > 10:
+                    # print(obj.label, len(uv[0][mask]))
+                    # Normalize the combined data
+                    # Apply DBSCAN
+                    dbscan = DBSCAN(eps=8, min_samples=10)
+                    clusters = dbscan.fit_predict(combined_data)
 
-                    densest_cluster_points_uv = (
-                        uv[0][mask], uv[1][mask])
-                    # 计算densest_cluster_points_uv在semantic mask中的label和instance label有多少一致
-                    obj_sem_id = CLASS_TO_LABEL[obj.label]
-                    sem_matched = np_sem_mask2D[
-                                      densest_cluster_points_uv[1], densest_cluster_points_uv[0]] == obj_sem_id
-
-                    # 仅选择语义掩码匹配的点
-                    # 使用布尔数组 sem_matched 来选择匹配的点
-                    matched_points_u = densest_cluster_points_uv[0][sem_matched]
-                    matched_points_v = densest_cluster_points_uv[1][sem_matched]
-
-                    matched_points_uv = (matched_points_u, matched_points_v)
-                    num_sem_matched = np.sum(sem_matched)
-                    num_total = len(sem_matched)
-
-                    if num_sem_matched / num_total < 0.1:
-                        # print(
-                        #     "The semantic labels of the densest cluster points are not consistent with the object label")
-                        continue
+                    # Determine the densest cluster
+                    cluster_counts = Counter(clusters)
+                    # Exclude noise points which are labeled as -1
+                    if -1 in cluster_counts:
+                        del cluster_counts[-1]
+                    # 检查是否有有效的聚类
+                    if len(cluster_counts) <= 0:
+                        # print("No valid clusters found")
+                        densest_cluster_id = None
                     else:
-                        # print(
-                        #     "The semantic labels of the densest cluster points are mostly consistent with the object label")
+                        # 获取数量最多的聚类的 ID
+                        densest_cluster_id = cluster_counts.most_common(1)[0][0]
 
-                        # plt.figure()  # 创建一个新的图形
-                        # plt.imshow(np_image2D)  # Adjust if necessary for color channels
-                        # plt.plot(densest_cluster_points_uv[0], densest_cluster_points_uv[1], 'r.', markersize=0.8)
-                        # plt.savefig(os.path.join(out_folder, f"cluster{sequence}_{obj.id}_{obj.label}.png"))
-                        # plt.close()
+                        print("Number of points in the densest cluster:", cluster_counts[densest_cluster_id])
 
-                        predictor_sam = initialize_sam_model(device='cuda')
-                        predictor_sam.set_image(np_image2D)
-                        best_mask = run_sam(image_size=np_image2D,
-                                            num_random_rounds=num_random_rounds,
-                                            num_selected_points=num_selected_points,
-                                            point_coords=np.array([matched_points_uv[0], matched_points_uv[1]]).T,
-                                            predictor_sam=predictor_sam, )
+                        # Get the indices of the points in the densest cluster
+                        densest_cluster_indices = np.where(clusters == densest_cluster_id)[0]
+                        densest_cluster_points_uv = (
+                            uv[0][mask][densest_cluster_indices], uv[1][mask][densest_cluster_indices])
 
-                        if sum(best_mask.flatten()) > 0:
-                            # MULTI LEVEL CROPS
-                            for level in range(num_levels):
-                                # mask out bg
-                                bg_rgb_color = (0.48145466 * 255.0, 0.4578275 * 255.0, 0.40821073 * 255.0)
-                                best_mask_boolean = best_mask.astype(bool)
-                                np_image2D_mask = np_image2D.copy()
-                                np_image2D_mask[~best_mask_boolean] = bg_rgb_color
-                                image_2D_masked = Image.fromarray(np_image2D_mask.astype('uint8'))
+                        # 计算densest_cluster_points_uv在semantic mask中的label和instance label有多少一致
+                        obj_sem_id = CLASS_TO_LABEL[obj.label]
+                        sem_matched = np_sem_mask2D[
+                                          densest_cluster_points_uv[1], densest_cluster_points_uv[0]] == obj_sem_id
+                        num_sem_matched = np.sum(sem_matched)
+                        num_total = len(sem_matched)
 
-                                # get the bbox and corresponding crops
-                                x1, y1, x2, y2 = mask2box_multi_level(torch.from_numpy(best_mask), level,
-                                                                      multi_level_expansion_ratio)
-                                # cropped_img =image_2D_masked.crop((x1, y1, x2, y2))
-                                cropped_img = image2D.crop((x1, y1, x2, y2))
-                                if cropped_img.size[0] < 60 and cropped_img.size[1] < 60:
-                                    # print("crop too small")
-                                    break
+                        if num_sem_matched / num_total < 0.8:
+                            # print(
+                            #     "The semantic labels of the densest cluster points are not consistent with the object label")
+                            continue
+                        else:
+                            # print(
+                            #     "The semantic labels of the densest cluster points are mostly consistent with the object label")
 
-                                if (save_crops):
-                                    cropped_img.save(os.path.join(out_folder, f"crop{sequence}_{obj.id}_{obj.label}_{level}.png"))
+                            # plt.figure()  # 创建一个新的图形
+                            # plt.imshow(np_image2D)  # Adjust if necessary for color channels
+                            # plt.plot(densest_cluster_points_uv[0], densest_cluster_points_uv[1], 'r.', markersize=0.8)
+                            # plt.savefig(os.path.join(out_folder, f"cluster{sequence}_{obj.id}_{obj.label}.png"))
+                            # plt.close()
 
-                                # Currently compute the CLIP feature using the standard clip model
-                                # TODO: using mask-adapted CLIP
-                                cropped_img_processed = clip_preprocess(cropped_img)
-                                image_crops.append(cropped_img_processed)
+                            predictor_sam = initialize_sam_model(device='cuda')
+                            predictor_sam.set_image(np_image2D)
+                            best_mask = run_sam(image_size=np_image2D,
+                                                num_random_rounds=num_random_rounds,
+                                                num_selected_points=num_selected_points,
+                                                point_coords=np.array([densest_cluster_points_uv[0], densest_cluster_points_uv[1]]).T,
+                                                predictor_sam=predictor_sam, )
+
+                            if sum(best_mask.flatten()) > 0:
+                                # MULTI LEVEL CROPS
+                                for level in range(num_levels):
+                                    # mask out bg
+                                    bg_rgb_color = (0.48145466 * 255.0, 0.4578275 * 255.0, 0.40821073 * 255.0)
+                                    best_mask_boolean = best_mask.astype(bool)
+                                    np_image2D_mask = np_image2D.copy()
+                                    np_image2D_mask[~best_mask_boolean] = bg_rgb_color
+                                    image_2D_masked = Image.fromarray(np_image2D_mask.astype('uint8'))
+
+                                    # get the bbox and corresponding crops
+                                    x1, y1, x2, y2 = mask2box_multi_level(torch.from_numpy(best_mask), level,
+                                                                          multi_level_expansion_ratio)
+                                    # cropped_img =image_2D_masked.crop((x1, y1, x2, y2))
+                                    cropped_img = image2D.crop((x1, y1, x2, y2))
+                                    if cropped_img.size[0] < 60 and cropped_img.size[1] < 60:
+                                        # print("crop too small")
+                                        break
+
+                                    if (save_crops):
+                                        cropped_img.save(os.path.join(out_folder, f"crop{sequence}_{obj.id}_{obj.label}_{level}.png"))
+
+                                    # Currently compute the CLIP feature using the standard clip model
+                                    # TODO: using mask-adapted CLIP
+                                    cropped_img_processed = clip_preprocess(cropped_img)
+                                    image_crops.append(cropped_img_processed)
 
                 if (len(image_crops) > 0):
                     image_input = torch.tensor(np.stack(image_crops))  # (num_crops, 3, 224, 224)
@@ -648,7 +664,7 @@ if __name__ == "__main__":
         return_location_objects=True,
     )
 
-    path_objects = osp.join(args.path_in, "objects_fast", f"{args.scene_name}.pkl")
+    path_objects = osp.join(args.path_in, "objects", f"{args.scene_name}.pkl")
     path_cells = osp.join(args.path_out, "cells", f"{args.scene_name}.pkl")
     path_poses = osp.join(args.path_out, "poses", f"{args.scene_name}.pkl")
 

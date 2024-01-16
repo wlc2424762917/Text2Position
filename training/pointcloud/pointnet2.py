@@ -60,8 +60,8 @@ def val_epoch(model, dataloader, args):
         acc = torch.sum(torch.argmax(output.class_pred, dim=-1) == batch.y).item() / len(
             output.class_pred
         )
-        epoch_accs.append(acc)
 
+        epoch_accs.append(acc)
         epoch_accs_color.append(-1)
 
     return np.mean(epoch_accs), np.mean(epoch_accs_color)
@@ -128,6 +128,11 @@ if __name__ == "__main__":
             num_colors=len(COLOR_NAMES_K360),
             args=args,
         )
+        # load pretrained model
+        if args.pointnet_path is not None:
+            model.load_state_dict(torch.load(args.pointnet_path))
+            print(f"Loaded pretrained model from {args.pointnet_path}")
+
         model.to(device)
 
         optimizer = optim.Adam(model.parameters(), lr=lr)

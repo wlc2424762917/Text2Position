@@ -96,19 +96,21 @@ class LanguageEncoder(torch.nn.Module):
     def device(self):
         return next(self.lstm.parameters()).device
 
-# class Clip_LanguageEncoder():
-#     def __init__(self, clip_version, device):
-#         self.device = device
-#         self.clip_version = clip_version
-#         self.model, self.preprocess = clip.load(clip_version, device=device)
-#
-#     def __call__(self, descriptions):
-#         with torch.no_grad():
-#             text_inputs = torch.cat([clip.tokenize(desc) for desc in descriptions]).to(self.device)  # [B, 77]
-#             print("text_inputs", text_inputs.device)
-#             text_features = self.model.encode_text(text_inputs)  # [B, 512]
-#             text_features = F.normalize(text_features, dim=-1)
-#             return text_features
+
+class Adapter(nn.Module):
+    def __init__(self, c_in, reduction=4):
+        super(Adapter, self).__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(c_in, c_in // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(c_in // reduction, c_in, bias=False),
+            nn.ReLU(inplace=True)
+        )
+
+    def forward(self, x):
+        x = self.fc(x)
+        return x
+
 
 class Clip_LanguageEncoder(nn.Module):
     def __init__(self, clip_version):
@@ -165,48 +167,25 @@ class Clip_LanguageEncoder_TransformerFuser(nn.Module):
         super(Clip_LanguageEncoder_TransformerFuser, self).__init__()
         self.model, _ = clip.load(clip_version)
         self.clip_text_freeze = clip_text_freeze
+        self.model.float()
         if clip_text_freeze:
-            self.model.eval()
+            for name, param in self.model.named_parameters():
+                param.requires_grad_(False)
+                # print(name, param.requires_grad)
+        self.adapter = Adapter(512, 4)
+        self.ratio = 0.2
         self.transformerFuser = TransformerWithMaxPool(d_model=512, nhead=8, num_layers=6, dim_feedforward=2048)
 
     def forward(self, descriptions):
-        if self.clip_text_freeze:
-            with torch.no_grad():
-                description_features = []
-                # for description in descriptions:
-                #     sentences = description.split('.')
-                #     sentences = [sentence.strip() for sentence in sentences if sentence.strip()]
-                #
-                #     # Process each sentence
-                #     sentence_features = []
-                #     for sentence in sentences:
-                #         text_inputs = clip.tokenize(sentence).to(self.device)
-                #         text_features = self.model.encode_text(text_inputs)
-                #         sentence_features.append(text_features)
-                #
-                #     # Concatenate the features from all sentences
-                #     concatenated_features = torch.cat(sentence_features, dim=0)  # [N, 512]
-                #     # aggregate the features from all sentences
-                #     description_features.append(concatenated_features)
-                # description_features = torch.stack(description_features, dim=0)  # [B, N, 512]
-
-                # accelerated version
-                # Preprocess descriptions to collect all sentences
-                all_sentences = [sentence.strip() for description in descriptions for sentence in description.split('.')
-                                 if sentence.strip()]
-                # Tokenize all sentences in one go
-                all_text_inputs = torch.cat([clip.tokenize(sentence).to(self.device) for sentence in all_sentences])  # [B*N, 77]
-                # Encode all sentences in one go
-                all_text_features = self.model.encode_text(all_text_inputs)  # [B*N, 512]
-                # Aggregate features for each description
-        else:
-            all_sentences = [sentence.strip() for description in descriptions for sentence in description.split('.')
-                             if sentence.strip()]
-            # Tokenize all sentences in one go
-            all_text_inputs = torch.cat(
-                [clip.tokenize(sentence).to(self.device) for sentence in all_sentences])  # [B*N, 77]
-            # Encode all sentences in one go
-            all_text_features = self.model.encode_text(all_text_inputs)  # [B*N, 512]
+        all_sentences = [sentence.strip() for description in descriptions for sentence in description.split('.')
+                         if sentence.strip()]
+        # Tokenize all sentences in one go
+        all_text_inputs = torch.cat(
+            [clip.tokenize(sentence).to(self.device) for sentence in all_sentences])  # [B*N, 77]
+        # Encode all sentences in one go
+        all_text_features = self.model.encode_text(all_text_inputs)  # [B*N, 512]
+        x = self.adapter(all_text_features)
+        all_text_features = self.ratio * x + (1 - self.ratio) * all_text_features
 
         description_features = []
         start_index = 0
@@ -285,7 +264,8 @@ class RelationMultiHeadSelfAttention(nn.Module):
         assert (
             self.head_dim * heads == embed_size
         ), "Embedding size needs to be divisible by heads"
-
+        # 初始化CLS token的嵌入
+        self.cls_token = nn.Parameter(torch.randn(1, 1, embed_size))
         self.values = nn.Linear(self.head_dim, self.head_dim, bias=False)
         self.keys = nn.Linear(self.head_dim, self.head_dim, bias=False)
         self.queries = nn.Linear(self.head_dim, self.head_dim, bias=False)
@@ -295,26 +275,41 @@ class RelationMultiHeadSelfAttention(nn.Module):
 
     def forward(self, values, keys, query, mask, relation):
         N = query.shape[0]
+        # 使用CLS token嵌入
+        cls_tokens = self.cls_token.repeat(N, 1, 1)  # 复制CLS token以匹配批次大小
+        values = torch.cat([cls_tokens, values], dim=1)
+        keys = torch.cat([cls_tokens, keys], dim=1)
+        query = torch.cat([cls_tokens, query], dim=1)
+
         value_len, key_len, query_len = values.shape[1], keys.shape[1], query.shape[1]
 
         # Split the embedding into self.heads different pieces
         values = values.reshape(N, value_len, self.heads, self.head_dim)
         keys = keys.reshape(N, key_len, self.heads, self.head_dim)
         queries = query.reshape(N, query_len, self.heads, self.head_dim)
-        relation = relation.reshape(N, query_len, key_len, self.heads, self.head_dim)
+        relation = relation.reshape(N, query_len - 1, key_len - 1, self.heads, self.head_dim)
 
         # Pool the relation matrix along rows and columns using max pooling
-        relation_row_pool, _ = relation.max(dim=-3, keepdim=False)  # (N, query_len, heads, head_dim)
-        relation_col_pool, _ = relation.max(dim=-4, keepdim=False)  #  (N, key_len, heads, head_dim)
+        relation_row_pool, _ = relation.max(dim=-3, keepdim=False)
+        relation_col_pool, _ = relation.max(dim=-4, keepdim=False)
 
         # Get q, k, v from linear transformations
         values = self.values(values)
         keys = self.keys(keys)
         queries = self.queries(queries)
 
-        # Add the pooled relation matrix to q and k
-        queries_with_relation = queries + relation_row_pool
-        keys_with_relation = keys + relation_col_pool
+        # Add the pooled relation matrix to q and k,
+        # 分离第一个元素和剩余部分
+        queries_first, queries_rest = queries[:, :1, :, :], queries[:, 1:, :, :]
+        keys_first, keys_rest = keys[:, :1, :, :], keys[:, 1:, :, :]
+
+        # 对剩余部分执行加法操作
+        queries_rest_with_relation = queries_rest + relation_row_pool
+        keys_rest_with_relation = keys_rest + relation_col_pool
+
+        # 重组queries和keys
+        queries_with_relation = torch.cat([queries_first, queries_rest_with_relation], dim=1)
+        keys_with_relation = torch.cat([keys_first, keys_rest_with_relation], dim=1)
 
         # Calculate the energy (qk^T)
         energy = torch.einsum('nqhd,nkhd->nhqk', queries_with_relation, keys_with_relation)
@@ -349,14 +344,14 @@ class MaxPoolRelationMultiHeadSelfAttention(nn.Module):
         # 初始化填充后的嵌入和掩码
         padded_embeddings = torch.zeros(len(batch.unique()), max_len, embeddings.size(-1))
         padded_relation = torch.zeros(len(batch.unique()), max_len, max_len, self.embed_dim)
-        mask = torch.ones(len(batch.unique()), max_len, max_len)
+        mask = torch.ones(len(batch.unique()), max_len+1, max_len+1) # consider the cls token
 
         # 对每个批次添加填充embedding, relation掩码, (B, max_len, D), (B, max_len, max_len, embed_dim)
         for i, b in enumerate(batch.unique()):
             # embedding padding
             batch_embeddings = embeddings[batch == b]
             padded_embeddings[i, :batch_embeddings.size(0)] = batch_embeddings
-            mask[i, :batch_embeddings.size(0), :batch_embeddings.size(0)] = 0  # 0表示有效值，1表示无效值
+            mask[i, :batch_embeddings.size(0)+1, :batch_embeddings.size(0)+1] = 0  # 0表示有效值，1表示无效值
             # relation embedding padding
             relation_len = relation[i].shape[0]
             # assert relation_len == sum(batch == b)
@@ -373,12 +368,12 @@ class MaxPoolRelationMultiHeadSelfAttention(nn.Module):
 
         # 应用多头自注意力机制
         attn_output = self.multihead_attn(padded_embeddings.to(self.device), padded_embeddings.to(self.device), padded_embeddings.to(self.device), mask.to(self.device), padded_relation.to(self.device))
+        # attn_output [B, max_len, D]
 
-        # 应用最大池化
-        attn_output = F.max_pool1d(attn_output.transpose(1, 2), attn_output.size(1)).squeeze(-1)
+        # 取global token
+        attn_output = attn_output[:, 0, :]  # [B, D]
 
         return attn_output
-
 
     @property
     def device(self):
