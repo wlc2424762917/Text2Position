@@ -347,6 +347,14 @@ if __name__ == "__main__":
                 dataset_train.get_known_words(),
                 args,
             )
+
+        # 检查是否有多个 GPU 可用
+        if torch.cuda.device_count() > 1:
+            print("Let's use", torch.cuda.device_count(), "GPUs!")
+            # 封装模型以在多 GPU 上运行
+            model = nn.DataParallel(model)
+
+        # 将模型放到设备上
         model.to(device)
 
         optimizer = optim.Adam(model.parameters(), lr=lr)

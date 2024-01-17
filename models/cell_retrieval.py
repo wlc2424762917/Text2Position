@@ -12,7 +12,7 @@ import os
 import pickle
 from easydict import EasyDict
 
-from models.modules import get_mlp, LanguageEncoder, Clip_LanguageEncoder, MaxPoolMultiHeadSelfAttention, Clip_LanguageEncoder_TransformerFuser, MaxPoolRelationMultiHeadSelfAttention
+from models.modules import get_mlp, LanguageEncoder, Clip_LanguageEncoder, MaxPoolMultiHeadSelfAttention, Clip_LanguageEncoder_TransformerFuser, MaxPoolRelationMultiHeadSelfAttention, T5_LanguageEncoder_TransformerFuser
 
 from models.object_encoder import ObjectEncoder
 import clip
@@ -83,11 +83,14 @@ class CellRetrievalNetwork(torch.nn.Module):
             self.language_linear_submap = nn.Linear(512, embed_dim)
 
         elif args.language_encoder == "CLIP_text_transformer":
-            self.language_encoder = Clip_LanguageEncoder_TransformerFuser(clip_version="ViT-B/32", clip_text_freeze=self.args.clip_text_freeze)
+            self.language_encoder = Clip_LanguageEncoder_TransformerFuser(clip_version="ViT-B/32", clip_text_freeze=self.args.text_freeze)
             self.language_linear = nn.Linear(512, embed_dim)
             # self.language_linear_object = nn.Linear(512, embed_dim)
             self.language_linear_submap = nn.Linear(512, embed_dim)
 
+        elif args.language_encoder == "T5_text_transformer":
+            self.language_encoder = T5_LanguageEncoder_TransformerFuser(T5_model_path=args.T5_model_path, T5_model_freeze=self.args.text_freeze)
+            self.language_linear_submap = nn.Linear(512, embed_dim)
         else:
             self.language_encoder = LanguageEncoder(known_words, embed_dim, bi_dir=True)
 
@@ -126,7 +129,7 @@ class CellRetrievalNetwork(torch.nn.Module):
 
     def encode_text_submap(self, descriptions):
         batch_size = len(descriptions)
-        if self.args.language_encoder == "CLIP_text" or self.args.language_encoder == "CLIP_text_transformer":
+        if self.args.language_encoder == "CLIP_text" or self.args.language_encoder == "CLIP_text_transformer" or self.args.language_encoder == "T5_text_transformer":
             description_clip_features = self.language_encoder(descriptions)
             description_encodings = self.language_linear_submap(description_clip_features)
             description_encodings, description_clip_features = F.normalize(description_encodings), F.normalize(description_clip_features)

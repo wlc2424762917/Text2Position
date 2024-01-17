@@ -24,10 +24,15 @@ CUDA_VISIBLE_DEVICES=1 nohup python -m training.coarse --batch_size 64 --learnin
 CUDA_VISIBLE_DEVICES=1 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --no_pc_augment --class_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --epochs 48
 
 # language clip_transformer no_pc_augment class embedding color embedding clip loss lr 1e-4
-CUDA_VISIBLE_DEVICES=3 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --no_pc_augment --class_embed --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --epochs 48
+CUDA_VISIBLE_DEVICES=3 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --no_pc_augment --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --epochs 24
 CUDA_VISIBLE_DEVICES=3 nohup python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --no_pc_augment --class_embed --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --epochs 48 >> log_gpu3_clipCoss_classEmbed_colorEmbed_clipTextTransformerLanguageEncoder_fixed_noPcAug_lr1e-4 &
-#dim 512 no class embedding
-CUDA_VISIBLE_DEVICES=7 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 512 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --no_pc_augment --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --epochs 32
+# dim 512 no class embedding
+CUDA_VISIBLE_DEVICES=5 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 512 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --epochs 24
+
+# language T5_transformer no_pc_augment no class embedding clip loss lr 1e-4 relation transformer
+CUDA_VISIBLE_DEVICES=5 python -m training.coarse --batch_size 32 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --color_embed --ranking_loss CLIP  --language_encoder T5_text_transformer --epochs 24
+
+CUDA_VISIBLE_DEVICES=5 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --color_embed --ranking_loss CLIP  --language_encoder T5_text_transformer --epochs 24
 
 # with augmentation
 CUDA_VISIBLE_DEVICES=3 nohup python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --class_embed --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --epochs 48 >> log_gpu3_clipCoss_classEmbed_colorEmbed_clipTextTransformerLanguageEncoder_fixed_with_PcAug_lr1e-4 &

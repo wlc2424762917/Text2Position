@@ -76,6 +76,7 @@ def parse_arguments():
 
     # language encoder
     parser.add_argument("--language_encoder", type=str, default="LSTM")
+    parser.add_argument("--T5_model_path", type=str, default="/home/wanglichao/t5-small")
 
     # Arguments for translation regressor training.
     parser.add_argument(
@@ -107,7 +108,7 @@ def parse_arguments():
         else:
             raise argparse.ArgumentTypeError('Boolean value expected.')
 
-    parser.add_argument("--clip_text_freeze", type=str2bool, nargs='?', const=True, default=True,
+    parser.add_argument("--text_freeze", type=str2bool, nargs='?', const=True, default=True,
                         help="Activate clip_text_freeze")
 
     args = parser.parse_args()

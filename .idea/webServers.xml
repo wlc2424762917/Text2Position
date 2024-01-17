@@ -2,15 +2,15 @@
 <project version="4">
   <component name="WebServers">
     <option name="servers">
-      <webServer id="20a97de8-9fcb-4489-a2f7-c56f3db5b885" name="FNii_Futian_33">
-        <fileTransfer rootFolder="/home/wanglichao" accessType="SFTP" host="192.168.3.33" port="22" sshConfigId="087eb635-d30b-40f4-a2ee-9639eafdaf47" sshConfig="wanglichao@192.168.3.33:22 password">
+      <webServer id="fa99d568-e152-43e2-b318-ec09a1d84487" name="FNii_Futian32">
+        <fileTransfer rootFolder="/home/wanglichao" accessType="SFTP" host="192.168.3.32" port="22" sshConfigId="cd252a97-4a56-4f0c-b77b-744b6ec6eebf" sshConfig="wanglichao@192.168.3.32:22 password">
           <advancedOptions>
-            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
           </advancedOptions>
         </fileTransfer>
       </webServer>
-      <webServer id="fa99d568-e152-43e2-b318-ec09a1d84487" name="FNii_Futian32">
-        <fileTransfer rootFolder="/home/wanglichao" accessType="SFTP" host="192.168.3.32" port="22" sshConfigId="cd252a97-4a56-4f0c-b77b-744b6ec6eebf" sshConfig="wanglichao@192.168.3.32:22 password">
+      <webServer id="934dab93-8eb5-4c5c-909c-4968041d735f" name="FNii_Futian34">
+        <fileTransfer rootFolder="/home/wanglichao" accessType="SFTP" host="192.168.3.34" port="22" sshConfigId="f984f4ba-2eb7-4f6a-9b69-fa04a3370652" sshConfig="wanglichao@192.168.3.34:22 password">
           <advancedOptions>
             <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
           </advancedOptions>

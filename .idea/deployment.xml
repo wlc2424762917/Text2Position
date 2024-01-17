@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="wanglichao@192.168.3.32:22 password (3)" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="FNii_Futian34" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
     <option name="confirmBeforeUploading" value="false" />
     <serverData>
       <paths name="FNii_Futian32">
@@ -10,28 +10,21 @@
           </mappings>
         </serverdata>
       </paths>
-      <paths name="FNii_Futian_33">
+      <paths name="FNii_Futian34">
         <serverdata>
           <mappings>
-            <mapping deploy="/Text2Pos-CVPR2022" local="$PROJECT_DIR$" web="/" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="Yanglab7">
-        <serverdata>
-          <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="wanglichao@192.168.3.31:22 password">
-        <serverdata>
-          <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/Text2Position" local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>
       <paths name="wanglichao@192.168.3.31:22 password (2)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/wanglichao/Text2Position" local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="wanglichao@192.168.3.31:22 password (3)">
         <serverdata>
           <mappings>
             <mapping local="$PROJECT_DIR$" web="/" />
@@ -64,20 +57,6 @@
         <serverdata>
           <mappings>
             <mapping deploy="/tmp/pycharm_project_964" local="$PROJECT_DIR$" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="wanglichao@192.168.3.33:22 password">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/home/wanglichao/Text2Pos-CVPR2022" local="$PROJECT_DIR$" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="wanglichao@192.168.3.33:22 password (2)">
-        <serverdata>
-          <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>
