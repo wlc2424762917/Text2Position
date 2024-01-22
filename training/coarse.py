@@ -383,7 +383,7 @@ if __name__ == "__main__":
             time_end_epoch = time.time()
             print(f"Epoch {epoch} in {time_end_epoch - time_start_epoch:0.2f}.")
 
-            if epoch == 1 or epoch >= args.epochs // 4:
+            if epoch == 1 or epoch >= args.epochs // 8:
                 time_start_eval = time.time()
                 # train_acc, train_acc_close, train_retrievals = eval_epoch(
                 #     model, dataloader_train, args

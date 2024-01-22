@@ -100,7 +100,7 @@ class Kitti360BaseDataset(Dataset):
             # hints.append(f'The pose is {descr.direction} of a {obj.get_color_text()} {obj.label}.')
             new_direction = self.direction_map[descr.direction]
             hints.append(
-                f"There is a {descr.object_color_text} {descr.object_label} on {new_direction}."
+                f"The submap has a {descr.object_color_text} {descr.object_label} on {new_direction}."
             )
         return hints
 

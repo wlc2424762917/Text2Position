@@ -77,11 +77,18 @@ for obj in objs:
 
     xyz = obj.xyz  # 假设这是点云坐标的数组
     rgb = obj.rgb  # 假设这是点云颜色的数组
+    print(len(obj.image_2d))
+    if obj.feature_2d is None:
+        print("None", obj.instance_id)
+        continue
+    else:
+        print(obj.feature_2d.shape)
 
     if obj.instance_id == 7000:
         image2d = obj.image_2d
-        print(len(image2d))
-        print(image2d[0][0].shape)
+
+        # print(len(image2d))
+        # print(image2d[0][0].shape)
     # fig = plt.figure()
     # ax = fig.add_subplot(111, projection='3d')
     # # print(obj.instance_id, obj.label, xyz.shape)

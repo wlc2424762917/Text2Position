@@ -13,7 +13,7 @@ import pickle
 from easydict import EasyDict
 
 from models.modules import get_mlp, LanguageEncoder, Clip_LanguageEncoder, MaxPoolMultiHeadSelfAttention, Clip_LanguageEncoder_TransformerFuser, MaxPoolRelationMultiHeadSelfAttention, T5_LanguageEncoder_TransformerFuser
-
+from models.minkowski import *
 from models.object_encoder import ObjectEncoder
 import clip
 
@@ -72,6 +72,8 @@ class CellRetrievalNetwork(torch.nn.Module):
             self.attn_pooling = MaxPoolMultiHeadSelfAttention(embed_dim, num_heads=8)
 
         self.object_encoder = ObjectEncoder(embed_dim, known_classes, known_colors, args)
+        if self.args.no_objects:
+            self.cell_encoder = ResNet34(in_channels=3, out_channels=embed_dim, D=3)
 
         """
         Textual path
@@ -178,6 +180,7 @@ class CellRetrievalNetwork(torch.nn.Module):
         elif (self.only_clip_semantic_feature or self.use_clip_semantic_feature) and self.use_relation_transformer:
             x = embeddings.to(self.device)
             x = self.attn_pooling(x, batch, relation_embedding)
+            x = self.final_linear(x)
         elif self.use_relation_transformer:
             embeddings = embeddings.to(self.device)
             x = self.attn_pooling(embeddings, batch, relation_embedding)

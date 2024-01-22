@@ -38,7 +38,11 @@ class ObjectEncoder(torch.nn.Module):
         self.known_colors["<unk>"] = 0
         self.color_embedding = nn.Embedding(len(self.known_colors), embed_dim, padding_idx=0)
 
-        self.relation_encoder = get_mlp([2, 64, embed_dim])  # OPTION: relation_encoder layers
+        if self.args.use_relation_transformer and not (self.args.only_clip_semantic_feature or self.args.use_clip_semantic_feature):
+            self.relation_encoder = get_mlp([2, 64, embed_dim])
+        elif self.args.use_relation_transformer and (self.args.only_clip_semantic_feature or self.args.use_clip_semantic_feature):
+            self.relation_encoder = get_mlp([2, 64, embed_dim + 512])
+        # self.relation_encoder = get_mlp([2, 64, embed_dim])  # OPTION: relation_encoder layers
         self.num_encoder = get_mlp([1, 64, embed_dim])  # OPTION: num_encoder layers
         self.pos_encoder = get_mlp([3, 64, embed_dim])  # OPTION: pos_encoder layers
         self.color_encoder = get_mlp([3, 64, embed_dim])  # OPTION: color_encoder layers
@@ -213,7 +217,10 @@ class ObjectEncoder(torch.nn.Module):
             B, max_n, _, _ = relations.shape
             relations = relations.reshape(B*max_n*max_n, 2)
             relation_embedding = self.relation_encoder(relations)
-            relation_embedding = relation_embedding.reshape(B, max_n, max_n, self.embed_dim)
+            if self.args.use_clip_semantic_feature or self.args.only_clip_semantic_feature:
+                relation_embedding = relation_embedding.reshape(B, max_n, max_n, self.embed_dim + 512)
+            else:
+                relation_embedding = relation_embedding.reshape(B, max_n, max_n, self.embed_dim)
             # print("relation_embedding", relation_embedding.shape)
 
         if len(embeddings) > 1:
