@@ -95,8 +95,15 @@ def parse_arguments():
     parser.add_argument("--epochs", type=int, default=16)
     parser.add_argument("--lr_gamma", type=float32, default=1.0)
 
+    # unstable
     # use semantic head
     parser.add_argument("--use_semantic_head", action="store_true")
+
+    # no gt instance
+    parser.add_argument("--no_objects", action="store_true")
+
+    # fine stage only_matcher
+    parser.add_argument("--only_matcher", action="store_true")
 
     def str2bool(v):
         if isinstance(v, bool):
@@ -129,8 +136,8 @@ def parse_arguments():
     assert args.regressor_learn in ("center", "closest")
     assert args.regressor_eval in ("center", "closest")
 
-    args.dataset = args.dataset.upper()
-    assert args.dataset in ("S3D", "K360")
+    args.dataset = args.dataset
+    assert args.dataset in ("S3D", "K360", "K360_cell")
 
     assert args.ranking_loss in ("triplet", "pairwise", "hardest", "CLIP")
     for feat in args.use_features:

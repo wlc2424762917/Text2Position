@@ -51,16 +51,25 @@ def train_epoch(model, dataloader, args):
             break
 
         optimizer.zero_grad()
-        output = model(batch["objects"], batch["hint_descriptions"], batch["object_points"])
+        # print(f"hints: {batch['hint_descriptions']}")
+        if args.language_encoder == "CLIP_text":
+            output = model(batch["objects"], batch["texts"], batch["object_points"])
+        else:
+            output = model(batch["objects"], batch["hint_descriptions"], batch["object_points"])
 
-        loss_matching = criterion_matching(output.P, batch["all_matches"])
-        loss_offsets = criterion_offsets(
-            output.offsets, torch.tensor(batch["offsets"], dtype=torch.float, device=DEVICE)
-        )
+        if args.only_matcher == True:
+            loss_matching = criterion_matching(output.P, batch["all_matches"])
+            loss_offsets = torch.tensor(-1, dtype=torch.float, device=DEVICE)
+            loss = loss_matching
+        else:
+            loss_matching = criterion_matching(output.P, batch["all_matches"])
+            loss_offsets = criterion_offsets(
+                output.offsets, torch.tensor(batch["offsets"], dtype=torch.float, device=DEVICE)
+            )
 
-        loss = (
-            loss_matching + 5 * loss_offsets
-        )  # Currently fixed alpha seems enough, cell normed ∈ [0, 1]
+            loss = (
+                loss_matching + 5 * loss_offsets
+            )  # Currently fixed alpha seems enough, cell normed ∈ [0, 1]
         if not printed:
             print(f"Losses: {loss_matching.item():0.3f} {loss_offsets.item():0.3f}")
             printed = True
@@ -129,7 +138,10 @@ def eval_epoch(model, dataloader, args):
     )
 
     for i_batch, batch in enumerate(dataloader):
-        output = model(batch["objects"], batch["hint_descriptions"], batch["object_points"])
+        if args.language_encoder == "CLIP_text":
+            output = model(batch["objects"], batch["texts"], batch["object_points"])
+        else:
+            output = model(batch["objects"], batch["hint_descriptions"], batch["object_points"])
 
         recall, precision = calc_recall_precision(
             batch["matches"],
@@ -183,7 +195,10 @@ def eval_conf(model, dataset, args):
                 dataset[idx],
             ]
         )
-        hints = data["hint_descriptions"]
+        if args.language_encoder == "CLIP_text":
+            hints = data["texts"]
+        else:
+            hints = data["hint_descriptions"]
         output = model(data["objects"], hints, data["object_points"])
 
         matches = output.matches0.detach().cpu().numpy()
@@ -196,7 +211,10 @@ def eval_conf(model, dataset, args):
                     dataset[idx],
                 ]
             )
-            hints = data["hint_descriptions"]
+            if args.language_encoder == "CLIP_text":
+                hints = data["texts"]
+            else:
+                hints = data["hint_descriptions"]
             output = model(data["objects"], hints, data["object_points"])
             matches = output.matches0.detach().cpu().numpy()
             confs.append(np.sum(matches >= 0))

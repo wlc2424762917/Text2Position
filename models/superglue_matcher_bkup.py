@@ -22,7 +22,6 @@ from models.object_encoder import ObjectEncoder
 
 
 from datapreparation.kitti360pose.imports import Object3d as Object3d_K360
-from models.modules import get_mlp, LanguageEncoder, Clip_LanguageEncoder, MaxPoolMultiHeadSelfAttention, Clip_LanguageEncoder_TransformerFuser, MaxPoolRelationMultiHeadSelfAttention, T5_LanguageEncoder_TransformerFuser
 
 
 def get_mlp_offset(dims: List[int], add_batchnorm=False) -> nn.Sequential:
@@ -69,44 +68,16 @@ class SuperGlueMatch(torch.nn.Module):
 
         self.object_encoder = ObjectEncoder(args.embed_dim, known_classes, known_colors, args)
 
-        # object fuse
-        if args.only_clip_semantic_feature:
-            self.linear_obj = nn.Linear(512+self.embed_dim, 512)
-        embed_dim = self.embed_dim
+        self.language_encoder = LanguageEncoder(known_words, self.embed_dim, bi_dir=True)
+        self.mlp_offsets = get_mlp_offset([self.embed_dim, self.embed_dim // 2, 2])
 
-        # language encoder
-        if args.language_encoder == "CLIP_text":
-            self.language_encoder = Clip_LanguageEncoder(clip_version="ViT-B/32")
-            # self.language_linear = nn.Linear(512, embed_dim)
-            # self.language_linear_object = nn.Linear(512, embed_dim)
-            # self.language_linear_submap = nn.Linear(512, embed_dim)
-        elif args.language_encoder == "T5_text_transformer":
-            self.language_encoder = T5_LanguageEncoder_TransformerFuser(T5_model_path=args.T5_model_path, T5_model_freeze=self.args.text_freeze)
-            self.language_linear_submap = nn.Linear(512, embed_dim)
-        else:
-            self.language_encoder = LanguageEncoder(known_words, self.embed_dim, bi_dir=True)
-
-        # offset prediction
-        if args.only_clip_semantic_feature:
-            self.mlp_offsets = get_mlp_offset([512, 512 // 2, 2])
-        else:
-            self.mlp_offsets = get_mlp_offset([self.embed_dim, self.embed_dim // 2, 2])
-        if args.only_clip_semantic_feature:
-            config = {
-                "descriptor_dim": 512,
-                "GNN_layers": ["self", "cross"] * self.num_layers,
-                # 'GNN_layers': ['self', ] * self.num_layers,
-                "sinkhorn_iterations": self.sinkhorn_iters,
-                "match_threshold": 0.2,
-            }
-        else:
-            config = {
-                "descriptor_dim": self.embed_dim,
-                "GNN_layers": ["self", "cross"] * self.num_layers,
-                # 'GNN_layers': ['self', ] * self.num_layers,
-                "sinkhorn_iterations": self.sinkhorn_iters,
-                "match_threshold": 0.2,
-            }
+        config = {
+            "descriptor_dim": self.embed_dim,
+            "GNN_layers": ["self", "cross"] * self.num_layers,
+            # 'GNN_layers': ['self', ] * self.num_layers,
+            "sinkhorn_iterations": self.sinkhorn_iters,
+            "match_threshold": 0.2,
+        }
         self.superglue = SuperGlue(config)
 
         print("DEVICE", self.get_device())
@@ -114,31 +85,20 @@ class SuperGlueMatch(torch.nn.Module):
     def forward(self, objects, hints, object_points):
         batch_size = len(objects)
         num_objects = len(objects[0])
-        # print(f"batch_size: {batch_size}, num_objects: {num_objects}")
         """
         Encode the hints
         """
-        if self.args.language_encoder == "CLIP_text" or self.args.language_encoder == "CLIP_text_transformer":
-            description_encodings = self.language_encoder(hints)
-            # description_encodings = self.language_linear(description_encodings)
-            hint_encodings = F.normalize(description_encodings)
-        else:
-            hint_encodings = torch.stack(
-                [self.language_encoder(hint_sample) for hint_sample in hints]
-            )  # [B, num_hints, DIM]
-            hint_encodings = F.normalize(hint_encodings, dim=-1)  # Norming those too
-        # print("hint_encodings", hint_encodings.shape)
+        hint_encodings = torch.stack(
+            [self.language_encoder(hint_sample) for hint_sample in hints]
+        )  # [B, num_hints, DIM]
+        hint_encodings = F.normalize(hint_encodings, dim=-1)  # Norming those too
+
         """
         Object encoder
         """
         object_encodings, class_embedding, color_embedding, pos_embedding, num_points_embedding, relation_embedding = self.object_encoder(objects, object_points)
-        if self.args.only_clip_semantic_feature:
-            object_encodings = self.linear_obj(object_encodings)
-            object_encodings = object_encodings.reshape((batch_size, num_objects, 512))
-            object_encodings = F.normalize(object_encodings, dim=-1)
-        else:
-            object_encodings = object_encodings.reshape((batch_size, num_objects, self.embed_dim))
-            object_encodings = F.normalize(object_encodings, dim=-1)
+        object_encodings = object_encodings.reshape((batch_size, num_objects, self.embed_dim))
+        object_encodings = F.normalize(object_encodings, dim=-1)
 
         """
         Match object-encodings to hint-encodings
@@ -155,15 +115,10 @@ class SuperGlueMatch(torch.nn.Module):
         offsets = self.mlp_offsets(hint_encodings)  # [B, num_hints, 2]
 
         outputs = EasyDict()
-        outputs.P = matcher_output["P"]  # [B, num_obj, num_hints]
-        outputs.matches0 = matcher_output["matches0"]  # [B, num_obj]
-        outputs.matches1 = matcher_output["matches1"]  # [B, num_hints]
+        outputs.P = matcher_output["P"]
+        outputs.matches0 = matcher_output["matches0"]
+        outputs.matches1 = matcher_output["matches1"]
         outputs.offsets = offsets
-
-        # print(f"output_p: {outputs.P[0]}")
-        # print("matcher_output", outputs.matches0.shape, outputs.matches1.shape)
-        # print("matcher_output", outputs.matches0[0], outputs.matches1[0])
-        # quit()
 
         outputs.matching_scores0 = matcher_output["matching_scores0"]
         outputs.matching_scores1 = matcher_output["matching_scores1"]

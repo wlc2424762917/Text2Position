@@ -19,7 +19,7 @@ def parse_arguments():
     )
 
     # Options
-    parser.add_argument("--top_k", type=int, nargs="+", default=[1, 5, 10])
+    parser.add_argument("--top_k", type=int, nargs="+", default=[1, 3, 5])
     parser.add_argument(
         "--threshs", type=int, nargs="+", default=[5, 10, 15]
     )  # Possibly over-write here when it becomes a list of tuples
@@ -57,6 +57,8 @@ def parse_arguments():
     parser.add_argument("--regressor_cell", type=str, default="pose")  # Pose or best
     parser.add_argument("--regressor_learn", type=str, default="center")  # Center or closest
     parser.add_argument("--regressor_eval", type=str, default="center")  # Center or closest
+
+    parser.add_argument("--use_alt_descriptions", action="store_true")
 
     args = parser.parse_args()
 

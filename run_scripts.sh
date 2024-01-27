@@ -91,6 +91,40 @@ CUDA_VISIBLE_DEVICES=1 nohup python -m training.fine --batch_size 32 --learning_
 # pointnet pretrain
 CUDA_VISIBLE_DEVICES=6 python -m training.pointcloud.pointnet2 --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --no_pc_augment --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --only_clip_semantic_feature --use_features color position --epochs 36
 
+# main clip feature
+CUDA_VISIBLE_DEVICES=5 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path /home/wanglichao/Text2Position/data/k360_30-10_scG_pd10_pc4_spY_all_clip_feature/ --no_pc_augment --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --only_clip_semantic_feature --use_features color position --epochs 24
+CUDA_VISIBLE_DEVICES=0 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path /home/wanglichao/Text2Position/data/k360_30-10_scG_pd10_pc4_spY_all_clip_feature/ --no_pc_augment --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --only_clip_semantic_feature --use_features color position --use_relation_transformer --epochs 24
 
-CUDA_VISIBLE_DEVICES=5 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path /home/wanglichao/Text2Position/data/k360_30-10_scG_pd10_pc4_spY_all_clip_feature/ --no_pc_augment --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --only_clip_semantic_feature --use_features color position --epochs 36
-CUDA_VISIBLE_DEVICES=0 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path /home/wanglichao/Text2Position/data/k360_30-10_scG_pd10_pc4_spY_all_clip_feature/ --no_pc_augment --color_embed --ranking_loss CLIP  --language_encoder CLIP_text_transformer --only_clip_semantic_feature --use_features color position --use_relation_transformer --epochs 36
+# cell encoder
+CUDA_VISIBLE_DEVICES=4 python -m training.coarse --batch_size 64 --learning_rate 0.0001 --embed_dim 256 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --color_embed --ranking_loss CLIP  --language_encoder T5_text_transformer --epochs 24 --dataset K360_cell --no_objects
+
+
+python -m evaluation.pipeline --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all_clip_feature/ \
+--path_coarse ./checkpoints/k360_30-10_scG_pd10_pc4_spY_all_clip_feature/coarse_contN_acc0.66_lrNone_ecl0_eco1_p256_npa1_nca0_f-color-position_attn.pth \
+--path_fine ./checkpoints/fine_acc0.88_lr1_obj-6-16_p256.pth
+
+python -m evaluation.pipeline --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all_clip_feature/ \
+--path_coarse /home/wanglichao/Text2Position/checkpoints/k360_30-10_scG_pd10_pc4_spY_all_clip_feature/coarse_contN_acc0.75_lrNone_ecl0_eco1_p256_npa1_nca0_f-color-position_relation.pth \
+--path_fine ./checkpoints/fine_acc0.88_lr1_obj-6-16_p256.pth
+
+python -m evaluation.pipeline --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all_clip_feature/ \
+--path_coarse /home/wanglichao/Text2Position/checkpoints/k360_30-10_scG_pd10_pc4_spY_all_clip_feature/coarse_contN_acc0.75_lrNone_ecl0_eco1_p256_npa1_nca0_f-color-position_relation.pth \
+--path_fine ./checkpoints/fine_acc0.88_lr1_obj-6-16_p256.pth --use_test_set
+
+CUDA_VISIBLE_DEVICES=5 python -m evaluation.pipeline --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all_clip_feature/ \
+--path_coarse /home/wanglichao/Text2Position/checkpoints/k360_30-10_scG_pd10_pc4_spY_all_clip_feature/coarse_contN_acc0.75_lrNone_ecl0_eco1_p256_npa1_nca0_f-color-position_relation.pth \
+--path_fine ./checkpoints/fine_acc0.88_lr1_obj-6-16_p256.pth --use_alt_descriptions
+
+
+CUDA_VISIBLE_DEVICES=5 python -m evaluation.pipeline --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all_clip_feature/ \
+--path_coarse /home/wanglichao/Text2Position/checkpoints/k360_30-10_scG_pd10_pc4_spY_all/coarse_contN_acc0.54_lrNone_ecl0_eco1_p256_npa1_nca0_f-all.pth \
+--path_fine ./checkpoints/fine_acc0.88_lr1_obj-6-16_p256.pth --use_alt_descriptions
+
+
+CUDA_VISIBLE_DEVICES=3 python -m training.fine --batch_size 32 --no_pc_augment --learning_rate 0.0003 --embed_dim 128 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/
+
+# clip semantic feature multi-task
+CUDA_VISIBLE_DEVICES=1 python -m training.fine --batch_size 64 --no_pc_augment --learning_rate 0.0003 --embed_dim 128 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all_clip_feature/ --language_encoder CLIP_text --only_clip_semantic_feature --use_features color position
+
+# lstm matcher
+CUDA_VISIBLE_DEVICES=2 python -m training.fine --batch_size 32 --no_pc_augment --learning_rate 0.0003 --embed_dim 128 --shuffle --base_path ./data/k360_30-10_scG_pd10_pc4_spY_all/ --only_matcher

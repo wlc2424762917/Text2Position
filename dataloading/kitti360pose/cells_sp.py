@@ -63,7 +63,7 @@ class Kitti360CoarseDataset(Kitti360BaseDataset):
 
         self.sample_close_cell = sample_close_cell
         self.cell_centers = np.array([cell.get_center()[0:2] for cell in self.cells])
-        self.voxelizer = Voxelizer(0.008)
+        self.voxelizer = Voxelizer(0.008, use_augmentation=False)
 
     def get_voxelized_points(self, objects):
         all_xyz = np.concatenate([obj.xyz for obj in objects], axis=0)

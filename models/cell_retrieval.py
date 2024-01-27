@@ -16,7 +16,7 @@ from models.modules import get_mlp, LanguageEncoder, Clip_LanguageEncoder, MaxPo
 from models.minkowski import *
 from models.object_encoder import ObjectEncoder
 import clip
-
+import MinkowskiEngine as ME
 
 #from dataloading.semantic3d.semantic3d import Semantic3dCellRetrievalDataset
 #from dataloading.semantic3d.semantic3d_poses import Semantic3dPosesDataset
@@ -193,6 +193,28 @@ class CellRetrievalNetwork(torch.nn.Module):
             return x, object_features_sem
         else:
             return x
+
+    def encode_cell(self, cells_xyz, cells_rgb):
+        """
+        Process the cell in a flattened way to allow for the processing of batches with uneven sample counts
+        """
+        assert len(cells_xyz) == len(cells_rgb)
+        batch_size = len(cells_xyz)
+        batched_coords = []
+        batched_feats = []
+        for b in range(batch_size):
+            coords = cells_xyz[b]
+            coords = torch.tensor(coords, dtype=torch.float)
+            feats = cells_rgb[b]
+            feats = torch.tensor(feats, dtype=torch.float)
+            batched_coords.append(coords)
+            batched_feats.append(feats)
+        batched_coords = ME.utils.batched_coordinates(batched_coords)
+        batched_feats = torch.cat(batched_feats, dim=0)
+        x_sp = ME.SparseTensor(features=batched_feats, coordinates=batched_coords, device=self.device)
+        output, feature = self.cell_encoder(x_sp)
+        output = F.normalize(output.F)
+        return output
 
     def forward(self):
         raise Exception("Not implemented.")

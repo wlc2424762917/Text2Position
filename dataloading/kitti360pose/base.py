@@ -24,6 +24,7 @@ from datapreparation.kitti360pose.drawing import (
     plot_pose_in_best_cell,
 )
 import time
+from datapreparation.kitti360pose.utils import randomize_class_and_color
 
 
 class Kitti360BaseDataset(Dataset):
@@ -48,6 +49,15 @@ class Kitti360BaseDataset(Dataset):
         self.class_to_index = CLASS_TO_INDEX
 
         self.direction_map = {"on-top": "base", "north": "south", "south": "north", "east": "west", "west": "east"}
+
+        self.hint_descriptions_alt = [
+            Kitti360BaseDataset.create_hint_description_alt(pose, self.cells_dict[pose.cell_id])
+            for pose in self.poses
+        ]
+        self.submap_descriptions_alt = [
+            Kitti360BaseDataset.create_submap_description_alt(self, pose, self.cells_dict[pose.cell_id])
+            for pose in self.poses
+        ]
 
         self.hint_descriptions = [
             Kitti360BaseDataset.create_hint_description(pose, self.cells_dict[pose.cell_id])
@@ -74,8 +84,24 @@ class Kitti360BaseDataset(Dataset):
         for descr in pose.descriptions:
             # obj = cell_objects_dict[descr.object_id]
             # hints.append(f'The pose is {descr.direction} of a {obj.get_color_text()} {obj.label}.')
+            # descr.direction, descr.object_color_text, descr.object_label = ov_change_descr(descr.direction, descr.object_color_text, descr.object_label)
             hints.append(
                 f"The pose is {descr.direction} of a {descr.object_color_text} {descr.object_label}."
+            )
+        # time_end_create_hint_description = time.time()
+        # print("time_create_hint_description: ", time_end_create_hint_description - time_start_create_hint_description)
+        return hints
+
+    def create_hint_description_alt(pose: Pose, cell: Cell):
+        hints = []
+        # cell_objects_dict = {obj.id: obj for obj in cell.objects}
+        # time_start_create_hint_description = time.time()
+        for descr in pose.descriptions:
+            # obj = cell_objects_dict[descr.object_id]
+            # hints.append(f'The pose is {descr.direction} of a {obj.get_color_text()} {obj.label}.')
+            object_color_text, object_label = randomize_class_and_color(descr.object_label, descr.object_color_text)
+            hints.append(
+                f"The pose is {descr.direction} of a {object_color_text} {object_label}."
             )
         # time_end_create_hint_description = time.time()
         # print("time_create_hint_description: ", time_end_create_hint_description - time_start_create_hint_description)
@@ -104,6 +130,21 @@ class Kitti360BaseDataset(Dataset):
             )
         return hints
 
+    def create_submap_description_alt(self, pose: Pose, cell: Cell):
+        # print("create_submap_description_alt")
+        hints = []
+        # cell_objects_dict = {obj.id: obj for obj in cell.objects}
+        for descr in pose.descriptions:
+            # obj = cell_objects_dict[descr.object_id]
+            # hints.append(f'The pose is {descr.direction} of a {obj.get_color_text()} {obj.label}.')
+            new_direction = self.direction_map[descr.direction]
+            object_color_text, object_label = randomize_class_and_color(descr.object_label, descr.object_color_text)
+            hints.append(
+                f"The submap has a {object_color_text} {object_label} on {new_direction}."
+            )
+        return hints
+
+
     def get_known_classes(self):
         return list(self.class_to_index.keys())
 
@@ -122,6 +163,7 @@ class Kitti360BaseDataset(Dataset):
         for key in data[0].keys():
             batch[key] = [data[i][key] for i in range(len(data))]
         return batch
+
 
 
 if __name__ == "__main__":

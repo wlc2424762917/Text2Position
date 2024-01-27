@@ -20,7 +20,7 @@ from models.cell_retrieval import CellRetrievalNetwork
 
 from datapreparation.kitti360pose.utils import SCENE_NAMES, SCENE_NAMES_TRAIN, SCENE_NAMES_VAL, CLASS_TO_INDEX
 from datapreparation.kitti360pose.utils import COLOR_NAMES as COLOR_NAMES_K360
-from dataloading.kitti360pose.cells import Kitti360CoarseDataset, Kitti360CoarseDatasetMulti
+from dataloading.kitti360pose.cells import Kitti360CoarseDatasetMulti, Kitti360CoarseDataset
 
 from training.args import parse_arguments
 from training.plots import plot_metrics
@@ -47,11 +47,8 @@ def train_epoch(model, dataloader, args):
         optimizer.zero_grad()
         # anchor = model.module.encode_text(batch["texts"])
         # anchor_objects, clip_feature_objects = model.module.encode_text_objects(batch["texts_objects"])  # with linear layer(512->256) / without linear layer
-        anchor_submap, clip_feature_submap = model.module.encode_text_submap(batch["texts"])
-        # anchor_submap, clip_feature_submap = model.module.encode_text_submap(batch["texts_submap"])
-        if args.no_objects:
-            positive = model.module.encode_cell(batch["cells_xyz"], batch["cells_rgb"])
-        elif args.use_semantic_head:
+        anchor_submap, clip_feature_submap = model.module.encode_text_submap(batch["texts_submap"])
+        if args.use_semantic_head:
             positive, sem_pred = model.module.encode_objects(batch["objects"], batch["object_points"])
         else:
             positive = model.module.encode_objects(batch["objects"], batch["object_points"])
@@ -101,7 +98,6 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
         Dict: Top retrievals as {query_idx: top_cell_ids}
     """
     assert args.ranking_loss != "triplet"  # Else also update evaluation.pipeline
-    args.use_semantic_head = False
 
     model.eval()  # Now eval() seems to increase results
     accuracies = {k: [] for k in args.top_k}
@@ -132,9 +128,7 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
     index_offset = 0
     for batch in dataloader:
         # text_enc = model.encode_text(batch["texts"])
-        # print("batch['texts_submap']:", batch["texts_submap"])
         text_enc, text_clip_feature = model.encode_text_submap(batch["texts_submap"])
-        # text_enc, text_clip_feature = model.encode_text_submap(batch["texts"])
         # text_enc_obj, text_clip_feature_obj = model.encode_text_objects(batch["texts_objects"])
         batch_size = len(text_enc)
 
@@ -257,7 +251,7 @@ if __name__ == "__main__":
     Create data loaders
     """
     if args.dataset == "K360":
-        from dataloading.kitti360pose.cells import Kitti360CoarseDatasetMulti, Kitti360CoarseDataset
+        # ['2013_05_28_drive_0003_sync', ]
         if args.no_pc_augment:
             # train_transform = T.FixedPoints(args.pointnet_numpoints)
             # val_transform = T.FixedPoints(args.pointnet_numpoints)
@@ -312,61 +306,6 @@ if __name__ == "__main__":
             pin_memory=True
         )
 
-    elif args.dataset == "K360_cell":
-        from dataloading.kitti360pose.cells_sp import Kitti360CoarseDatasetMulti, Kitti360CoarseDataset
-        if args.no_pc_augment:
-            # train_transform = T.FixedPoints(args.pointnet_numpoints)
-            # val_transform = T.FixedPoints(args.pointnet_numpoints)
-            train_transform = T.Compose(
-                [
-                    T.FixedPoints(args.pointnet_numpoints),
-                    # T.RandomRotate(120, axis=2),
-                    T.NormalizeScale(),
-                ]
-            )
-            val_transform = T.Compose([T.FixedPoints(args.pointnet_numpoints), T.NormalizeScale()])
-        else:
-            train_transform = T.Compose(
-                [
-                    T.FixedPoints(args.pointnet_numpoints),
-                    T.RandomRotate(120, axis=2),
-                    T.NormalizeScale(),
-                ]
-            )
-            val_transform = T.Compose([T.FixedPoints(args.pointnet_numpoints), T.NormalizeScale()])
-
-        if args.no_cell_augment:
-            dataset_train = Kitti360CoarseDatasetMulti(
-                args.base_path,
-                SCENE_NAMES_TRAIN,
-                train_transform,
-                shuffle_hints=False,
-                flip_poses=False,
-            )
-        else:
-            dataset_train = Kitti360CoarseDatasetMulti(
-                args.base_path,
-                SCENE_NAMES_TRAIN,
-                train_transform,
-                shuffle_hints=True,
-                flip_poses=True,
-            )
-        dataloader_train = DataLoader(
-            dataset_train,
-            batch_size=args.batch_size,
-            collate_fn=Kitti360CoarseDataset.collate_fn,
-            shuffle=args.shuffle,
-            pin_memory=True
-        )
-
-        dataset_val = Kitti360CoarseDatasetMulti(args.base_path, SCENE_NAMES_VAL, val_transform)
-        dataloader_val = DataLoader(
-            dataset_val,
-            batch_size=args.batch_size,
-            collate_fn=Kitti360CoarseDataset.collate_fn,
-            shuffle=False,
-            pin_memory=True
-        )
     print(
         "Words-diff:",
         set(dataset_train.get_known_words()).difference(set(dataset_val.get_known_words())),

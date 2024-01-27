@@ -7,7 +7,7 @@ from datapreparation.kitti360pose.utils import COLORS, COLOR_NAMES
 
 class Object3d:
     # NOTE: use cell-id and scene-names to unique identify objects if needed
-    def __init__(self, id: int, instance_id: int, xyz: np.ndarray, rgb: np.ndarray, label: str, image_2d=[], feature_2d=[], feature_2d_text=None):
+    def __init__(self, id: int, instance_id: int, xyz: np.ndarray, rgb: np.ndarray, label: str, image_2d=[], feature_2d=np.zeros((1, 512)), feature_2d_text=None):
         """Representation of a 3D object in the scene
 
         Args:

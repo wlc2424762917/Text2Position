@@ -224,6 +224,8 @@ class ObjectEncoder(torch.nn.Module):
             # print("relation_embedding", relation_embedding.shape)
 
         if len(embeddings) > 1:
+            # for i, embedding in enumerate(embeddings):
+            #     print(f"embedding {i}: {embedding.shape}")
             embeddings = self.mlp_merge(torch.cat(embeddings, dim=-1))
         else:
             embeddings = embeddings[0]
@@ -234,6 +236,7 @@ class ObjectEncoder(torch.nn.Module):
             for objects_sample in objects:
                 clip_2d_features.extend([obj.feature_2d for obj in objects_sample])
             clip_2d_features = np.array(clip_2d_features)
+            # print(f"clip_2d_features: {clip_2d_features.shape}")
             clip_2d_features = torch.tensor(clip_2d_features, dtype=torch.float, device=self.get_device())
             clip_2d_features = clip_2d_features.squeeze(1)
             # print(f"clip_2d_features: {clip_2d_features.shape}")
@@ -243,6 +246,7 @@ class ObjectEncoder(torch.nn.Module):
             # print(f"embeddings: {embeddings.max()}, {embeddings.min()}")
             # print(f"clip_2d_features: {clip_2d_features.max()}, {clip_2d_features.min()}")
             embeddings = torch.cat((embeddings, clip_2d_features), dim=-1)  # [N, embedding_dim + clip_dim]
+        # print(f"embeddings: {embeddings.shape}")
         if self.args.use_semantic_head:
             return embeddings, class_embedding, color_embedding, pos_embedding, num_points_embedding, relation_embedding, object_features_sem
         return embeddings, class_embedding, color_embedding, pos_embedding, num_points_embedding, relation_embedding

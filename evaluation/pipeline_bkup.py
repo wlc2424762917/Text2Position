@@ -294,11 +294,11 @@ if __name__ == "__main__":
 
     if args.use_test_set:
         dataset_retrieval = Kitti360CoarseDatasetMulti(
-            args.base_path, SCENE_NAMES_TEST, transform, shuffle_hints=False, flip_poses=False, use_alt_descriptions=args.use_alt_descriptions
+            args.base_path, SCENE_NAMES_TEST, transform, shuffle_hints=False, flip_poses=False
         )
     else:
         dataset_retrieval = Kitti360CoarseDatasetMulti(
-            args.base_path, SCENE_NAMES_VAL, transform, shuffle_hints=False, flip_poses=False, use_alt_descriptions=args.use_alt_descriptions
+            args.base_path, SCENE_NAMES_VAL, transform, shuffle_hints=False, flip_poses=False
         )
     dataloader_retrieval = DataLoader(
         dataset_retrieval,
@@ -311,9 +311,9 @@ if __name__ == "__main__":
 
     # Load models
     model_retrieval = torch.load(args.path_coarse, map_location=torch.device("cpu"))
-    # model_matching = torch.load(args.path_fine, map_location=torch.device("cpu"))
+    model_matching = torch.load(args.path_fine, map_location=torch.device("cpu"))
     model_retrieval.to(device)
-    # model_matching.to(device)
+    model_matching.to(device)
 
     # eval_conf(model_matching, dataset_retrieval)
     # quit()
@@ -328,15 +328,15 @@ if __name__ == "__main__":
         quit()
 
     # Run fine
-    # if args.fine_oracle or args.fine_random:
-    #     accuracies = run_fine_oracle(
-    #         retrievals, dataloader_retrieval, args, random_oracle=args.fine_random
-    #     )
-    #     print_accuracies(accuracies, "Fine (oracle)")
-    # else:
-    #     accuracies_mean, accuracies_offsets, accuracies_mean_conf = run_fine(
-    #         model_matching, retrievals, dataloader_retrieval, args
-    #     )
-    #     print_accuracies(accuracies_mean, "Fine (mean)")
-    #     print_accuracies(accuracies_offsets, "Fine (offsets)")
-    #     print_accuracies(accuracies_mean_conf, "Fine (mean-conf)")
+    if args.fine_oracle or args.fine_random:
+        accuracies = run_fine_oracle(
+            retrievals, dataloader_retrieval, args, random_oracle=args.fine_random
+        )
+        print_accuracies(accuracies, "Fine (oracle)")
+    else:
+        accuracies_mean, accuracies_offsets, accuracies_mean_conf = run_fine(
+            model_matching, retrievals, dataloader_retrieval, args
+        )
+        print_accuracies(accuracies_mean, "Fine (mean)")
+        print_accuracies(accuracies_offsets, "Fine (offsets)")
+        print_accuracies(accuracies_mean_conf, "Fine (mean-conf)")

@@ -43,6 +43,7 @@ class Kitti360CoarseDataset(Kitti360BaseDataset):
         shuffle_hints=False,
         flip_poses=False,
         sample_close_cell=False,
+        use_alt_descriptions=False,
     ):
         """Dataset variant for coarse module training.
         Returns one item per pose.
@@ -63,6 +64,8 @@ class Kitti360CoarseDataset(Kitti360BaseDataset):
         self.sample_close_cell = sample_close_cell
         self.cell_centers = np.array([cell.get_center()[0:2] for cell in self.cells])
 
+        self.use_alt_descriptions = use_alt_descriptions
+
     def __getitem__(self, idx):
 
         # time_start_get_cell = time.time()
@@ -81,9 +84,16 @@ class Kitti360CoarseDataset(Kitti360BaseDataset):
         # print(f"time get cell = {time_end_get_cell-time_start_get_cell:0.2f}")
 
         # time_start_create_hints = time.time()
-        hints = self.hint_descriptions[idx]
-        objects_descriptions = self.objects_descriptions[idx]
-        submap_descriptions = self.submap_descriptions[idx]
+        # print(f"use_alt_descriptions = {self.use_alt_descriptions}")
+        if self.use_alt_descriptions:
+            hints = self.hint_descriptions_alt[idx]
+            objects_descriptions = self.objects_descriptions[idx]
+            submap_descriptions = self.submap_descriptions_alt[idx]
+            # print(f"submap_descriptions_alt = {submap_descriptions}")
+        else:
+            hints = self.hint_descriptions[idx]
+            objects_descriptions = self.objects_descriptions[idx]
+            submap_descriptions = self.submap_descriptions[idx]
         # time_end_create_hints = time.time()
         # print(f"time create hints = {time_end_create_hints-time_start_create_hints:0.2f}")
 
@@ -152,6 +162,7 @@ class Kitti360CoarseDatasetMulti(Dataset):
         shuffle_hints=False,
         flip_poses=False,
         sample_close_cell=False,
+        use_alt_descriptions=False,
     ):
         """Multi-scene variant of Kitti360CoarseDataset.
 
@@ -169,7 +180,7 @@ class Kitti360CoarseDatasetMulti(Dataset):
         self.sample_close_cell = sample_close_cell
         self.datasets = [
             Kitti360CoarseDataset(
-                base_path, scene_name, transform, shuffle_hints, flip_poses, sample_close_cell
+                base_path, scene_name, transform, shuffle_hints, flip_poses, sample_close_cell, use_alt_descriptions
             )
             for scene_name in scene_names
         ]

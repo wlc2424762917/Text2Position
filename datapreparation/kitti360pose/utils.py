@@ -2,7 +2,9 @@
 """
 
 import numpy as np
-from segment_anything import sam_model_registry, SamPredictor
+# from segment_anything import sam_model_registry, SamPredictor
+import random
+
 
 SCENE_NAMES = [
     "2013_05_28_drive_0000_sync",
@@ -201,6 +203,57 @@ COLORS = (
     / 255.0
 )
 
+CLASS_NAMES_ALTERNATIVES = {
+    "building": ["structure", "edifice", "construction", "complex", "facility", "block"],
+    "pole": ["post", "column", "rod", "shaft", "pillar", "mast"],
+    "traffic light": ["signal", "stoplight", "semaphore", "beacon", "traffic signal", "indicator"],
+    "traffic sign": ["road sign", "street sign", "signpost", "warning sign", "traffic marker", "direction sign"],
+    "garage": ["carport", "auto shop", "workshop", "shed", "storage", "parking lot"],
+    "stop": ["halt", "pause", "standstill", "cessation", "break", "stoppage"],
+    "smallpole": ["small post", "small rod", "thin pole", "short column", "slender stake", "mini pole"],
+    "lamp": ["light", "lantern", "bulb", "fixture", "torch", "illuminant"],
+    "trash bin": ["garbage can", "waste basket", "rubbish bin", "dustbin", "litter bin", "recycling bin"],
+    "vending machine": ["dispenser", "automat", "coin machine", "kiosk", "snack machine", "drink machine"],
+    "box": ["container", "crate", "case", "bin", "chest", "packet"],
+    "road": ["street", "highway", "avenue", "path", "route", "lane"],
+    "sidewalk": ["pavement", "footpath", "walkway", "pathway", "esplanade", "promenade"],
+    "parking": ["car park", "parking lot", "garage", "parking space", "parking area", "car space"],
+    "wall": ["barrier", "partition", "panel", "divider", "fence", "screen"],
+    "fence": ["barrier", "railing", "hedge", "enclosure", "palisade", "picket"],
+    "guard rail": ["railing", "barricade", "barrier", "handrail", "safety rail", "parapet"],
+    "bridge": ["overpass", "viaduct", "footbridge", "span", "crossing", "arch"],
+    "tunnel": ["underpass", "passage", "subway", "conduit", "tube", "duct"],
+    "vegetation": ["plants", "greenery", "foliage", "flora", "shrubs", "grass"],
+    "terrain": ["land", "ground", "landscape", "topography", "area", "region"],
+    "pad": ["cushion", "mat", "pillow", "rest", "support", "buffer"],
+}
+
+COLOR_NAMES_ALTERNATIVES = {
+    "dark-green": ["forest-green", "moss-green", "olive-green", "dark-olive", "pine-green", "deep-green"],
+    "gray": ["slate-gray", "silver", "stone", "stone-gray", "charcoal", "gunmetal-gray"],
+    "gray-green": ["sage", "olive-drab", "moss", "sea green", "feldgrau", "willow green"],
+    "bright-gray": ["light-gray", "silver", "pale-gray", "platinum", "misty-gray", "ash"],
+    "black": ["jet-black", "charcoal", "onyx", "obsidian", "raven", "ink-black"],
+    "green": ["kelly-green", "jade", "emerald", "grass-green", "shamrock-green", "lime-green"],
+    "beige": ["tan", "sand", "khaki", "ecru", "buff", "fawn"]
+}
+
+def randomize_class_and_color(class_name, color_name):
+    # 从类别近义词字典中随机选择一个近义词
+    if class_name in CLASS_NAMES_ALTERNATIVES:
+        class_alternative = random.choice(CLASS_NAMES_ALTERNATIVES[class_name])
+    else:
+        class_alternative = class_name  # 如果没有找到类别，则保持不变
+
+    # 从颜色近义词字典中随机选择一个近义词
+    if color_name in COLOR_NAMES_ALTERNATIVES:
+        color_alternative = random.choice(COLOR_NAMES_ALTERNATIVES[color_name])
+    else:
+        color_alternative = color_name  # 如果没有找到颜色，则保持不变
+    # print(f"old class: {class_name}, new class: {class_alternative}")
+    return class_alternative, color_alternative
+
+
 # COLOR_NAMES = ['color-0', 'color-1', 'color-2', 'color-3', 'color-4', 'color-5', 'color-6', 'color-7']
 """
 Note that these names are not completely precise as the fitted colors are mostly gray-scale.
@@ -212,7 +265,7 @@ from scipy.spatial.distance import cdist
 
 dists = cdist(COLORS, COLORS)
 
-from segment_anything import sam_model_registry, SamPredictor
+# from segment_anything import sam_model_registry, SamPredictor
 import numpy as np
 import torch
 

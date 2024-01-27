@@ -94,7 +94,6 @@ class ResNetBase(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        print(x.shape)
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -111,6 +110,7 @@ class ResNetBase(nn.Module):
 
         x = self.relu(x)
         x = self.glob_avg(x)
+        x = self.final(x)
 
         return x, feature
 
