@@ -270,6 +270,7 @@ class MaxPoolMultiHeadSelfAttention(nn.Module):
         padded_embeddings = torch.zeros(len(batch.unique()), max_len, embeddings.size(-1))
         mask = torch.ones(len(batch.unique()), max_len, max_len)
 
+        # print(batch)
         # 对每个批次添加填充并创建掩码, (B, max_len, D)
         for i, b in enumerate(batch.unique()):
             # print(batch == b)
@@ -508,3 +509,67 @@ class T5_LanguageEncoder_TransformerFuser(nn.Module):
     def device(self):
         return next(self.model.parameters()).device
 
+
+class T5_LanguageEncoder(nn.Module):
+    def __init__(self, T5_model_path='/home/wanglichao/t5-small', T5_model_freeze=True):
+        super(T5_LanguageEncoder, self).__init__()
+        self.tokenizer = T5Tokenizer.from_pretrained(T5_model_path)
+        self.model = T5EncoderModel.from_pretrained(T5_model_path)
+        self.transformerD = TransformerWithMaxPool_n(d_model=512, nhead=8, num_layers=1, dim_feedforward=2048)
+
+        if T5_model_freeze:
+            for param in self.model.parameters():
+                param.requires_grad = False
+
+    def forward(self, descriptions):
+        # all_sentences = [sentence.strip() for description in descriptions for sentence in description.split('.')
+        #                  if sentence.strip()]
+        all_sentences = []
+        max_token_len = 0
+        for description in descriptions:
+            description = description.replace('.', ' . ')
+            sentences = [sentence.strip() for sentence in description.split('.') if sentence.strip()]
+            all_sentences.extend(sentences)
+            token_lens = [len(self.tokenizer.encode(sentence, add_special_tokens=False)) for sentence in sentences]
+            max_token_len = max(max_token_len, max(token_lens, default=0))
+
+        # 编码所有句子
+        all_text_inputs = torch.cat([self.tokenizer(sentence,
+                                                    return_tensors='pt',
+                                                    padding='max_length',
+                                                    truncation=True,
+                                                    max_length=max_token_len).input_ids for sentence in all_sentences])
+
+        # 获取注意力掩码
+        attention_masks = torch.cat([self.tokenizer(sentence,
+                                                    return_tensors='pt',
+                                                    padding='max_length',
+                                                    truncation=True,
+                                                    max_length=max_token_len).attention_mask for sentence in all_sentences])
+
+        # 使用模型获取特征
+        all_text_features = self.model(input_ids=all_text_inputs.to(self.device), attention_mask=attention_masks.to(self.device)).last_hidden_state
+        # print(all_text_features.shape)
+        description_features = []
+        start_index = 0
+        for description in descriptions:
+            num_sentences = 6  # 假设每个描述有6个句子
+            end_index = start_index + num_sentences
+            description_feature = all_text_features[start_index:end_index]
+            description_features.append(description_feature)
+            start_index = end_index
+
+        # concatenate the description features not stack
+        description_features = torch.stack(description_features, dim=0)  # shape [B, N, D, 512]
+        # print(description_features.shape)
+        # D维度上的Transformer和MaxPooling
+        description_features_d = [self.transformerD(description_feature) for description_feature in
+                                  description_features.transpose(1, 2)]
+        description_features_d = torch.stack(description_features_d, dim=0) # shape [B, N, 512]
+
+
+        return description_features_d
+
+    @property
+    def device(self):
+        return next(self.model.parameters()).device

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="wanglichao@192.168.3.32:22 password (3)" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="t2p_33" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
     <option name="confirmBeforeUploading" value="false" />
     <serverData>
       <paths name="FNii_Futian32">
@@ -11,6 +11,13 @@
         </serverdata>
       </paths>
       <paths name="FNii_Futian34">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/Text2Pos-CVPR2022" local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="t2p_33">
         <serverdata>
           <mappings>
             <mapping deploy="/Text2Pos-CVPR2022" local="$PROJECT_DIR$" web="/" />

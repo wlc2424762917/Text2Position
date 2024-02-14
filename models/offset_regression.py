@@ -6,7 +6,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from models.modules import LanguageEncoder
+from models.mask3d_modules import LanguageEncoder
 from models.superglue_matcher import get_mlp_offset
 
 

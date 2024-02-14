@@ -7,15 +7,15 @@ import random
 
 
 SCENE_NAMES = [
-    "2013_05_28_drive_0000_sync",
-    "2013_05_28_drive_0002_sync",
-    "2013_05_28_drive_0003_sync",
-    "2013_05_28_drive_0004_sync",
-    "2013_05_28_drive_0005_sync",
-    "2013_05_28_drive_0006_sync",
-    "2013_05_28_drive_0007_sync",
-    "2013_05_28_drive_0009_sync",
-    "2013_05_28_drive_0010_sync",
+    "2013_05_28_drive_0000_sync", # 0
+    "2013_05_28_drive_0002_sync", # 1
+    "2013_05_28_drive_0003_sync", # 2
+    "2013_05_28_drive_0004_sync", # 3
+    "2013_05_28_drive_0005_sync", # 4
+    "2013_05_28_drive_0006_sync", # 5
+    "2013_05_28_drive_0007_sync", # 6
+    "2013_05_28_drive_0009_sync", # 7
+    "2013_05_28_drive_0010_sync", # 8
 ]
 SCENE_NAMES_TRAIN = [
     "2013_05_28_drive_0000_sync",

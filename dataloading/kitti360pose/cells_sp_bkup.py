@@ -63,19 +63,16 @@ class Kitti360CoarseDataset(Kitti360BaseDataset):
 
         self.sample_close_cell = sample_close_cell
         self.cell_centers = np.array([cell.get_center()[0:2] for cell in self.cells])
-        self.voxelizer = Voxelizer(0.008)
+        self.voxelizer = Voxelizer(0.008, use_augmentation=False)
 
-    def get_voxelized_points(self, objects, transform):
+    def get_voxelized_points(self, objects):
         all_xyz = np.concatenate([obj.xyz for obj in objects], axis=0)
         all_rgb = np.concatenate([obj.rgb for obj in objects], axis=0)
         # print(f"all_xyz.shape = {all_xyz.shape}")
         voxelized_xyz, voxelized_rgb, voxelized_labels, idx_arr, idx = self.voxelizer.voxelize(all_xyz, all_rgb, None, return_ind=True)
         # print(f"voxelized_xyz.shape = {voxelized_xyz.shape}")
-        sparse_points = Data(
-            x=torch.tensor(voxelized_rgb, dtype=torch.float), pos=torch.tensor(voxelized_xyz, dtype=torch.float)
-        )
-        sparse_points = transform(sparse_points)
-        return sparse_points
+
+        return voxelized_xyz, voxelized_rgb
 
 
     def __getitem__(self, idx):
@@ -129,8 +126,7 @@ class Kitti360CoarseDataset(Kitti360BaseDataset):
         # print(f"time flip hints = {time_end_flip_hints - time_start_flip_hints:0.2f}")
 
         # time_start_batch_obj = time.time()
-        object_points = self.get_voxelized_points(cell.objects, self.transform)
-        print(object_points)
+        voxelized_xyz, voxelized_rgb = self.get_voxelized_points(cell.objects)
         # time_end_batch_obj = time.time()
         # print(f"time batch obj = {time_end_batch_obj - time_start_batch_obj:0.2f}")
 
@@ -144,7 +140,8 @@ class Kitti360CoarseDataset(Kitti360BaseDataset):
             "poses": pose,
             "cells": cell,
             "objects": cell.objects,
-            "cells_points": object_points,
+            "cells_xyz": voxelized_xyz,
+            "cells_rgb": voxelized_rgb,
             "texts": text,
             "texts_objects": text_objects,
             "texts_submap": text_submap,

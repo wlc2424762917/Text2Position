@@ -160,20 +160,20 @@ def batch_object_points(objects: List[Object3d], transform):
 
     # time_start_transform = time.time()
 
-    # for i in range(len(data_list)):
-    #     data_list[i] = transform(data_list[i])
+    for i in range(len(data_list)):
+        data_list[i] = transform(data_list[i])
 
-    def apply_transform(data):
-        return transform(data)
-
-    # Parallel transformation using ThreadPoolExecutor
-    with ThreadPoolExecutor() as executor:
-        # Submit all transformation tasks and store the future objects
-        futures = [executor.submit(apply_transform, data) for data in data_list]
-
-        # Wait for the futures to complete and update the data_list
-        for i, future in enumerate(as_completed(futures)):
-            data_list[i] = future.result()
+    # def apply_transform(data):
+    #     return transform(data)
+    #
+    # # Parallel transformation using ThreadPoolExecutor
+    # with ThreadPoolExecutor() as executor:
+    #     # Submit all transformation tasks and store the future objects
+    #     futures = [executor.submit(apply_transform, data) for data in data_list]
+    #
+    #     # Wait for the futures to complete and update the data_list
+    #     for i, future in enumerate(as_completed(futures)):
+    #         data_list[i] = future.result()
 
     # time_end_transform = time.time()
     # print("time_transform: ", time_end_transform - time_start_transform)

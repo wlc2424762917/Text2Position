@@ -12,7 +12,7 @@ import os
 import pickle
 from easydict import EasyDict
 
-from models.modules import get_mlp, LanguageEncoder
+from models.mask3d_modules import get_mlp, LanguageEncoder
 
 
 class TransformerMatch1(torch.nn.Module):

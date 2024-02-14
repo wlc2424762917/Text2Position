@@ -15,7 +15,7 @@ import pickle
 from easydict import EasyDict
 from scipy.spatial.distance import cdist
 
-from models.modules import get_mlp, LanguageEncoder
+from models.mask3d_modules import get_mlp, LanguageEncoder
 from models.superglue import SuperGlue
 
 from dataloading.semantic3d.semantic3d import Semantic3dPoseReferenceMockDataset

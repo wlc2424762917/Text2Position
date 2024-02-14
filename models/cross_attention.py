@@ -389,14 +389,14 @@ if __name__ == "__main__":
     # Create a TransformerCrossEncoder with a single layer
     transformer_cross_encoder = TransformerCrossEncoder(
         cross_encoder_layer=cross_encoder_layer,
-        num_layers=1,
+        num_layers=2,
         norm=nn.LayerNorm(512),
         return_intermediate=False
     )
 
     # Create dummy source and target data
-    src = torch.rand(10, 32, 512)  # [sequence length, batch size, embedding dimension]
-    tgt = torch.rand(10, 32, 512)
+    src = torch.rand(10, 16, 512)  # [sequence length, batch size, embedding dimension]
+    tgt = torch.rand(10, 16, 512)
 
     # Forward pass through the transformer cross encoder
     src_out, tgt_out, time_dict_global = transformer_cross_encoder(src, tgt)

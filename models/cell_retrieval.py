@@ -11,7 +11,8 @@ import numpy as np
 import os
 import pickle
 from easydict import EasyDict
-
+import sys
+sys.path.append("/home/wanglichao/Text2Position")
 from models.modules import get_mlp, LanguageEncoder, Clip_LanguageEncoder, MaxPoolMultiHeadSelfAttention, Clip_LanguageEncoder_TransformerFuser, MaxPoolRelationMultiHeadSelfAttention, T5_LanguageEncoder_TransformerFuser
 from models.minkowski import *
 from models.object_encoder import ObjectEncoder
@@ -20,7 +21,7 @@ import MinkowskiEngine as ME
 
 #from dataloading.semantic3d.semantic3d import Semantic3dCellRetrievalDataset
 #from dataloading.semantic3d.semantic3d_poses import Semantic3dPosesDataset
-
+from models.mask3d import Mask3D
 
 class CellRetrievalNetwork(torch.nn.Module):
     def __init__(
@@ -68,12 +69,20 @@ class CellRetrievalNetwork(torch.nn.Module):
             self.final_linear = nn.Linear(embed_dim + 512, embed_dim)
         elif args.use_relation_transformer and not (args.only_clip_semantic_feature or args.use_clip_semantic_feature):
             self.attn_pooling = MaxPoolRelationMultiHeadSelfAttention(embed_dim, num_heads=8)
+
+
+        elif args.no_objects:
+            self.attn_pooling = MaxPoolMultiHeadSelfAttention(128, num_heads=8)
+            self.final_linear = nn.Linear(128, embed_dim)
+
         else:  # use attention + pooling
             self.attn_pooling = MaxPoolMultiHeadSelfAttention(embed_dim, num_heads=8)
 
         self.object_encoder = ObjectEncoder(embed_dim, known_classes, known_colors, args)
         if self.args.no_objects:
-            self.cell_encoder = ResNet34(in_channels=3, out_channels=embed_dim, D=3)
+            # self.cell_encoder = ResNet34(in_channels=3, out_channels=embed_dim, D=3)
+            self.cell_encoder = Mask3D()
+
 
         """
         Textual path
@@ -194,27 +203,78 @@ class CellRetrievalNetwork(torch.nn.Module):
         else:
             return x
 
-    def encode_cell(self, cells_xyz, cells_rgb):
-        """
-        Process the cell in a flattened way to allow for the processing of batches with uneven sample counts
-        """
-        assert len(cells_xyz) == len(cells_rgb)
-        batch_size = len(cells_xyz)
-        batched_coords = []
-        batched_feats = []
-        for b in range(batch_size):
-            coords = cells_xyz[b]
-            coords = torch.tensor(coords, dtype=torch.float)
-            feats = cells_rgb[b]
-            feats = torch.tensor(feats, dtype=torch.float)
-            batched_coords.append(coords)
-            batched_feats.append(feats)
-        batched_coords = ME.utils.batched_coordinates(batched_coords)
-        batched_feats = torch.cat(batched_feats, dim=0)
-        x_sp = ME.SparseTensor(features=batched_feats, coordinates=batched_coords, device=self.device)
-        output, feature = self.cell_encoder(x_sp)
-        output = F.normalize(output.F)
-        return output
+    # def encode_cell(self, cells_xyz, cells_rgb):
+    #     """
+    #     Process the cell in a flattened way to allow for the processing of batches with uneven sample counts
+    #     """
+    #     assert len(cells_xyz) == len(cells_rgb)
+    #     batch_size = len(cells_xyz)
+    #     batched_coords = []
+    #     batched_feats = []
+    #     for b in range(batch_size):
+    #         coords = cells_xyz[b]
+    #         coords = torch.tensor(coords, dtype=torch.float)
+    #         feats = cells_rgb[b]
+    #         feats = torch.tensor(feats, dtype=torch.float)
+    #         batched_coords.append(coords)
+    #         batched_feats.append(feats)
+    #     batched_coords = ME.utils.batched_coordinates(batched_coords)
+    #     batched_feats = torch.cat(batched_feats, dim=0)
+    #     x_sp = ME.SparseTensor(features=batched_feats, coordinates=batched_coords, device=self.device)
+    #     output, feature = self.cell_encoder(x_sp)
+    #     output = F.normalize(output.F)
+    #     return output
+
+    def encode_cell(self, cell_coordinates, cells_features, target):
+        # print(f"cell_coordinates: {cell_coordinates.shape}, cells_features: {cells_features.shape}")
+        raw_coordinates =cells_features[:, -3:]
+        cells_features = cells_features[:, :-3]
+        # print(raw_coordinates)
+        # print(f"raw_coordinates: {raw_coordinates.shape}, cells_features: {cells_features.shape}")
+        data = ME.SparseTensor(
+            coordinates=cell_coordinates,
+            features=cells_features,
+            device=self.device,
+        )
+        for i in range(len(target)):
+            for key in target[i]:
+                # print(key)
+                target[i][key] = target[i][key].to(device=self.device)
+        # print(data.shape)
+        output_dict = self.cell_encoder(data, point2segment=[
+                    target[i]["point2segment"] for i in range(len(target))], raw_coordinates=raw_coordinates, is_eval=False)
+        
+        queries = output_dict['queries']
+        # print(f"queries: {queries.shape}")
+        batch = []  # Batch tensor to send into PyG
+
+        for i_batch, objects_sample in enumerate(queries):
+            for obj in objects_sample:
+                #  class_idx = self.known_classes.get(obj.label, 0)
+                # class_indices.append(class_idx)
+                batch.append(i_batch)
+        batch = torch.tensor(batch, dtype=torch.long, device=self.device)
+
+        if (self.only_clip_semantic_feature or self.use_clip_semantic_feature) and not self.use_relation_transformer:
+            x = queries.to(self.device)
+            x = self.attn_pooling(x, batch)
+            x = self.final_linear(x)
+        # elif (self.only_clip_semantic_feature or self.use_clip_semantic_feature) and self.use_relation_transformer:
+        #     x = queries.to(self.device)
+        #     x = self.attn_pooling(x, batch, relation_embedding)
+        #     x = self.final_linear(x)
+        # elif self.use_relation_transformer:
+        #     embeddings = queries.to(self.device)
+        #     x = self.attn_pooling(embeddings, batch, relation_embedding)
+        else:
+            queries = queries.reshape(-1, 128)
+            embeddings = queries.to(self.device)
+            x = self.attn_pooling(embeddings, batch)
+            x = self.final_linear(x)
+        x = F.normalize(x)
+
+        return x, output_dict
+
 
     def forward(self):
         raise Exception("Not implemented.")

@@ -105,6 +105,8 @@ def parse_arguments():
     # fine stage only_matcher
     parser.add_argument("--only_matcher", action="store_true")
 
+    parser.add_argument("--use_cross_attention", action="store_true")
+
     def str2bool(v):
         if isinstance(v, bool):
             return v

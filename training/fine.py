@@ -52,7 +52,7 @@ def train_epoch(model, dataloader, args):
 
         optimizer.zero_grad()
         # print(f"hints: {batch['hint_descriptions']}")
-        if args.language_encoder == "CLIP_text":
+        if args.language_encoder == "CLIP_text" or "T5":
             output = model(batch["objects"], batch["texts"], batch["object_points"])
         else:
             output = model(batch["objects"], batch["hint_descriptions"], batch["object_points"])
@@ -70,6 +70,7 @@ def train_epoch(model, dataloader, args):
             loss = (
                 loss_matching + 5 * loss_offsets
             )  # Currently fixed alpha seems enough, cell normed ∈ [0, 1]
+
         if not printed:
             print(f"Losses: {loss_matching.item():0.3f} {loss_offsets.item():0.3f}")
             printed = True
@@ -138,7 +139,7 @@ def eval_epoch(model, dataloader, args):
     )
 
     for i_batch, batch in enumerate(dataloader):
-        if args.language_encoder == "CLIP_text":
+        if args.language_encoder == "CLIP_text" or "T5":
             output = model(batch["objects"], batch["texts"], batch["object_points"])
         else:
             output = model(batch["objects"], batch["hint_descriptions"], batch["object_points"])
@@ -211,7 +212,7 @@ def eval_conf(model, dataset, args):
                     dataset[idx],
                 ]
             )
-            if args.language_encoder == "CLIP_text":
+            if args.language_encoder == "CLIP_text" or "T5":
                 hints = data["texts"]
             else:
                 hints = data["hint_descriptions"]
@@ -373,7 +374,7 @@ if __name__ == "__main__":
                 flush=True,
             )
 
-            if epoch >= args.epochs // 2:
+            if epoch >= args.epochs // 6:
                 acc = np.mean((val_out.recall, val_out.precision))
                 if acc > best_val_recallPrecision:
                     model_path = f"./checkpoints/{dataset_name}/fine_cont{cont}_acc{acc:0.2f}_lr{args.lr_idx}_obj-{args.num_mentioned}-{args.pad_size}_ecl{int(args.class_embed)}_eco{int(args.color_embed)}_p{args.pointnet_numpoints}_npa{int(args.no_pc_augment)}_nca{int(args.no_cell_augment)}_f-{feats}.pth"

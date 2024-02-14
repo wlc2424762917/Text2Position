@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 import numpy as np
 
-from models.modules import get_mlp
+from models.mask3d_modules import get_mlp
 from models.pointcloud.pointnet2 import PointNet2
 
 from datapreparation.kitti360pose.imports import Object3d

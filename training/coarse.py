@@ -26,6 +26,8 @@ from training.args import parse_arguments
 from training.plots import plot_metrics
 from training.losses import MatchingLoss, PairwiseRankingLoss, HardestRankingLoss, ClipLoss, SemanticLoss
 
+from training.criterion import SetCriterion
+from training.matcher import HungarianMatcher
 
 def train_epoch(model, dataloader, args):
     model = nn.DataParallel(model)
@@ -40,6 +42,7 @@ def train_epoch(model, dataloader, args):
         # print(f"load batch {i_batch} in {time_end_load_batch - time_start_epoch:0.2f}")
 
         # time_start_forward = time.time()
+        # print(f"coarse_target: {batch['cells_targets']}")
         if args.max_batches is not None and i_batch >= args.max_batches:
             break
         # print(f"\r{i_batch}/{len(dataloader)}", end="", flush=True)
@@ -50,7 +53,7 @@ def train_epoch(model, dataloader, args):
         anchor_submap, clip_feature_submap = model.module.encode_text_submap(batch["texts"])
         # anchor_submap, clip_feature_submap = model.module.encode_text_submap(batch["texts_submap"])
         if args.no_objects:
-            positive = model.module.encode_cell(batch["cells_xyz"], batch["cells_rgb"])
+            positive, mask3d_output = model.module.encode_cell(batch["cells_coordinates"], batch["cells_features"], batch["cells_targets"])
         elif args.use_semantic_head:
             positive, sem_pred = model.module.encode_objects(batch["objects"], batch["object_points"])
         else:
@@ -74,16 +77,38 @@ def train_epoch(model, dataloader, args):
             # print("use semantic head")
             semantic_loss = criterion_class(sem_pred, batch["objects"])
             loss += 0.5 * semantic_loss
+
+        mask3d_loss = {}
+        if args.no_objects:
+            loss = 0
+            # batch["cells_targets"] = batch["cells_targets"].to(mask3d_output.device)
+            # print(len(batch["cells_targets"]))
+            mask3d_loss = criterion_mask3d(mask3d_output, batch["cells_targets"], mask_type="masks")
+            # print(f"mask3d_loss: {mask3d_loss}")
+            for k in list(mask3d_loss.keys()):
+                # print(k)
+                if k in criterion_mask3d.weight_dict:
+                    # print(f"mask3d_loss[k]: {mask3d_loss[k]}")
+                    mask3d_loss[k] *= criterion_mask3d.weight_dict[k] / 80
+                else:
+                    # remove this loss if not specified in `weight_dict`
+                    mask3d_loss.pop(k)
+            loss += sum(mask3d_loss.values())
+            # print(f"mask3d_loss: {sum(mask3d_loss.values())}")
+            # print(f"retrieval_loss: {loss}")
+            # quit()
         loss.backward()
         optimizer.step()
 
         epoch_losses.append(loss.item())
         batches.append(batch)
 
-        if i_batch % 80 == 0 and not args.use_semantic_head:
+        if i_batch % 80 == 0 and not args.use_semantic_head and not args.no_objects:
             print(f"\r{i_batch}/{len(dataloader)} loss {loss.item():0.2f}", end="", flush=False)
         elif i_batch % 80 == 0 and args.use_semantic_head:
             print(f"\r{i_batch}/{len(dataloader)} loss {loss.item():0.2f}, semantic loss {semantic_loss.item():0.2f}", end="", flush=False)
+        elif i_batch % 80 == 0 and args.no_objects:
+            print(f"\r{i_batch}/{len(dataloader)} loss {loss.item():0.2f}, instance segmentation loss {sum(mask3d_loss.values()):0.2f}", end="", flush=False)
     return np.mean(epoch_losses), batches
 
 
@@ -109,14 +134,22 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
 
     # TODO: Use this again if batches!
     # num_samples = len(dataloader.dataset) if isinstance(dataloader, DataLoader) else np.sum([len(batch['texts']) for batch in dataloader])
-
-    cells_dataset = dataloader.dataset.get_cell_dataset()
-    cells_dataloader = DataLoader(
-        cells_dataset,
-        batch_size=args.batch_size,
-        collate_fn=Kitti360CoarseDataset.collate_fn,
-        shuffle=False,
-    )
+    if args.dataset == "K360_cell":
+        cells_dataset = dataloader.dataset.get_cell_dataset()
+        cells_dataloader = DataLoader(
+            cells_dataset,
+            batch_size=args.batch_size,
+            collate_fn=Kitti360CoarseDataset.collate_fn_cell,
+            shuffle=False,
+        )
+    else:
+        cells_dataset = dataloader.dataset.get_cell_dataset()
+        cells_dataloader = DataLoader(
+            cells_dataset,
+            batch_size=args.batch_size,
+            collate_fn=Kitti360CoarseDataset.collate_fn,
+            shuffle=False,
+        )
     cells_dict = {cell.id: cell for cell in cells_dataset.cells}
     cell_size = cells_dataset.cells[0].cell_size
 
@@ -133,7 +166,7 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
     for batch in dataloader:
         # text_enc = model.encode_text(batch["texts"])
         # print("batch['texts_submap']:", batch["texts_submap"])
-        text_enc, text_clip_feature = model.encode_text_submap(batch["texts_submap"])
+        text_enc, text_clip_feature = model.encode_text_submap(batch["texts"])
         # text_enc, text_clip_feature = model.encode_text_submap(batch["texts"])
         # text_enc_obj, text_clip_feature_obj = model.encode_text_objects(batch["texts_objects"])
         batch_size = len(text_enc)
@@ -180,6 +213,8 @@ def eval_epoch(model, dataloader, args, return_encodings=False):
                 class_total[true_classname] += 1
                 if true_classname == predicted_classname:
                     class_correct[true_classname] += 1
+        elif args.no_objects:
+            cell_enc = model.module.encode_cell(batch["cells_coordinates"], batch["cells_features"])
 
         else:
             cell_enc = model.encode_objects(batch["objects"], batch["object_points"])
@@ -354,7 +389,7 @@ if __name__ == "__main__":
         dataloader_train = DataLoader(
             dataset_train,
             batch_size=args.batch_size,
-            collate_fn=Kitti360CoarseDataset.collate_fn,
+            collate_fn=Kitti360CoarseDataset.collate_fn_cell,
             shuffle=args.shuffle,
             pin_memory=True
         )
@@ -363,7 +398,7 @@ if __name__ == "__main__":
         dataloader_val = DataLoader(
             dataset_val,
             batch_size=args.batch_size,
-            collate_fn=Kitti360CoarseDataset.collate_fn,
+            collate_fn=Kitti360CoarseDataset.collate_fn_cell,
             shuffle=False,
             pin_memory=True
         )
@@ -431,13 +466,45 @@ if __name__ == "__main__":
         criterion_class = SemanticLoss(CLASS_TO_INDEX)
         # print("criterion_class:", dataset_train.get_known_classes(), len(dataset_train.get_known_classes()))
         # quit()
-        criterion_color = nn.CrossEntropyLoss()
+        # criterion_color = nn.CrossEntropyLoss()
+        matcher = HungarianMatcher(cost_class=2, cost_mask=5, cost_dice=2, num_points=-1)
+        weight_dict = {
+            "loss_ce": matcher.cost_class,
+            "loss_mask": matcher.cost_mask,
+            "loss_dice": matcher.cost_dice,
+        }
+
+        aux_weight_dict = {}
+        for i in range(len([0, 1, 2, 3]) * 3):
+            if i not in [255]:
+                aux_weight_dict.update(
+                    {k + f"_{i}": v for k, v in weight_dict.items()}
+                )
+            else:
+                aux_weight_dict.update(
+                    {k + f"_{i}": 0.0 for k, v in weight_dict.items()}
+                )
+        weight_dict.update(aux_weight_dict)
+
+        criterion_mask3d = SetCriterion(
+            num_classes=22,
+            matcher=matcher,
+            weight_dict=weight_dict,
+            eos_coef=0.1,
+            losses=['labels', 'masks'],
+            num_points=-1,
+            oversample_ratio=3.0,
+            importance_sample_ratio=0.75,
+            class_weights=-1,
+        )
 
         scheduler = optim.lr_scheduler.ExponentialLR(optimizer, args.lr_gamma)
 
         for epoch in range(1, args.epochs + 1):
             # dataset_train.reset_seed() #OPTION: re-setting seed leads to equal data at every epoch
             time_start_epoch = time.time()
+
+            # val_acc, val_acc_close, val_retrievals = eval_epoch(model, dataloader_val, args)
 
             loss, train_batches = train_epoch(model, dataloader_train, args)
             # train_acc, train_retrievals = eval_epoch(model, train_batches, args)
