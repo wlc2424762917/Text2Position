@@ -76,7 +76,8 @@ def parse_arguments():
 
     # language encoder
     parser.add_argument("--language_encoder", type=str, default="LSTM")
-    parser.add_argument("--T5_model_path", type=str, default="/home/wanglichao/t5-small")
+    # parser.add_argument("--T5_model_path", type=str, default="/home/wanglichao/t5-small")
+    parser.add_argument("--T5_model_path", type=str, default="/home/planner/wlc/t5-small")
 
     # Arguments for translation regressor training.
     parser.add_argument(
@@ -102,10 +103,24 @@ def parse_arguments():
     # no gt instance
     parser.add_argument("--no_objects", action="store_true")
 
-    # fine stage only_matcher
+    # fine stage
     parser.add_argument("--only_matcher", action="store_true")
-
     parser.add_argument("--use_cross_attention", action="store_true")
+    parser.add_argument("--no_superglue", action="store_true")
+
+    # mask3d part
+    parser.add_argument("--mask3d_ckpt", type=str, default="/home/planner/wlc/Mask3D/saved/t2p_q24_015_56.2/last.ckpt")
+    parser.add_argument("--freeze_cell_encoder", action="store_true")
+    parser.add_argument("--use_queries", action="store_true")
+    parser.add_argument("--two_optimizers", action="store_true")
+    parser.add_argument("--distill_query_embedding", action="store_true")
+    parser.add_argument("--distill_cell_feature", action="store_true")
+    parser.add_argument("--teacher_model", action="store_true")
+    parser.add_argument("--no_offset_idx", action="store_true")
+
+    parser.add_argument("--teacher_ckpt", type=str, default="/home/planner/wlc/Text2Position/checkpoints/k360_30-10_scG_pd10_pc4_spY_all/coarse_contY_acc0.64_lrNone_ecl1_eco1_p256_npa1_nca0_f-all_no_gt_instance_True_query_False_teacher_state_dict.pth")
+    # training
+    parser.add_argument("--acc_step", type=int, default=1)
 
     def str2bool(v):
         if isinstance(v, bool):

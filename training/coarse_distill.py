@@ -29,11 +29,16 @@ from training.losses import MatchingLoss, PairwiseRankingLoss, HardestRankingLos
 
 from training.criterion import SetCriterion
 from training.matcher import HungarianMatcher
+import os
 
-def train_epoch(model, dataloader, args):
-    if torch.cuda.device_count() == 1:
-        model = nn.DataParallel(model)
-    model.train()
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+
+
+
+def train_epoch(teacher_model, student_model, dataloader, args):
+
+    teacher_model.eval()
+    student_model.train()
     epoch_losses = []
 
     batches = []
@@ -48,105 +53,84 @@ def train_epoch(model, dataloader, args):
             break
         # print(f"\r{i_batch}/{len(dataloader)}", end="", flush=True)
         batch_size = len(batch["texts"])
-        if args.two_optimizers:
-            optimizer_cell_encoder.zero_grad()
-            optimizer_other.zero_grad()
-        else:
-            optimizer.zero_grad()
-        # anchor = model.module.encode_text(batch["texts"])
-        # anchor_objects, clip_feature_objects = model.module.encode_text_objects(batch["texts_objects"])  # with linear layer(512->256) / without linear layer
-        anchor_submap, clip_feature_submap = model.module.encode_text_submap(batch["texts"])
-        # anchor_submap, clip_feature_submap = model.module.encode_text_submap(batch["texts_submap"])
-        if args.no_objects:
-            if args.teacher_model:
-                positive, mask3d_output = model.module.encode_cell_distill(
-                    batch["cells_coordinates"], batch["cells_features"],
-                    batch["cells_targets"], batch["cells_inverse_map"],
-                    batch["cells_points"], batch["cells_colors"],
-                    num_query=24,
-                    freeze_cell_encoder=args.freeze_cell_encoder,
-                    use_queries=args.use_queries)
-            elif args.distill_query_embedding:
-                positive, mask3d_output, query_embedding, class_embedding = model.module.encode_cell(
-                    batch["cells_coordinates"], batch["cells_features"],
-                    batch["cells_targets"], batch["cells_inverse_map"],
-                    batch["cells_points"], batch["cells_colors"],
-                    num_query=24,
-                    freeze_cell_encoder=args.freeze_cell_encoder,
-                    use_queries=args.use_queries)
-            else:
-                positive, mask3d_output = model.module.encode_cell(batch["cells_coordinates"], batch["cells_features"],
-                                                                   batch["cells_targets"], batch["cells_inverse_map"],
-                                                                   batch["cells_points"], batch["cells_colors"],
-                                                                   num_query=24,
-                                                                   freeze_cell_encoder=args.freeze_cell_encoder,
-                                                                   use_queries=args.use_queries)
-        else:
-            positive = model.module.encode_objects(batch["objects"], batch["object_points"])
+
+        teacher_cell_features, mask3d_output = teacher_model.encode_cell_distill(
+            batch["cells_coordinates"], batch["cells_features"],
+            batch["cells_targets"], batch["cells_inverse_map"],
+            batch["cells_points"], batch["cells_colors"],
+            num_query=24,
+            freeze_cell_encoder=args.freeze_cell_encoder,
+            use_queries=args.use_queries,
+            offset=not args.no_offset_idx,
+            cell_feature=True)
+
+        student_cell_features, mask3d_output = student_model.encode_cell_distill(
+            batch["cells_coordinates"], batch["cells_features"],
+            batch["cells_targets"], batch["cells_inverse_map"],
+            batch["cells_points"], batch["cells_colors"],
+            num_query=24,
+            freeze_cell_encoder=args.freeze_cell_encoder,
+            use_queries=args.use_queries,
+            offset=not args.no_offset_idx,
+            cell_feature=True)
+
         # quit()
+        print(teacher_cell_features)
+        print(student_cell_features)
+        cell_mse_loss = (teacher_cell_features - student_cell_features) ** 2
+        print(cell_mse_loss)
+        cell_mse_loss = torch.sum(cell_mse_loss)
+        print(cell_mse_loss)
+        mse_loss = cell_mse_loss
+        # loss = criterion(teacher_features, student_features)
 
-        if args.ranking_loss == "triplet":
-            negative_cell_objects = [cell.objects for cell in batch["negative_cells"]]
-            negative = model.module.encode_objects(negative_cell_objects)
-            loss = criterion(anchor, positive, negative)
-
-        else:
-            loss = criterion(anchor_submap, positive)
-            # loss = criterion(anchor, positive)
-
-        loss = loss
+        loss = cell_mse_loss
         # loss = 0
 
-        mask3d_loss = {}
-        if args.no_objects:
-            # batch["cells_targets"] = batch["cells_targets"].to(mask3d_output.device)
-            # print(len(batch["cells_targets"]))
-            mask3d_loss = criterion_mask3d(mask3d_output, batch["cells_targets"], mask_type="masks")
-            # print(f"mask3d_loss: {mask3d_loss}")
-            for k in list(mask3d_loss.keys()):
-                # print(k)
-                if k in criterion_mask3d.weight_dict:
-                    # print(f"mask3d_loss[k]: {mask3d_loss[k]}")
-                    mask3d_loss[k] *= criterion_mask3d.weight_dict[k]
-                else:
-                    # remove this loss if not specified in `weight_dict`
-                    mask3d_loss.pop(k)
-            if not args.freeze_cell_encoder:
-                loss += sum(mask3d_loss.values())
-            # print(f"mask3d_loss: {sum(mask3d_loss.values())}")
-            # print(f"retrieval_loss: {loss}")
-            # quit()
-        if args.distill_query_embedding:
-            loss = 0
-            normalization_factor = batch_size * 256
-            mse_loss = F.mse_loss(query_embedding, class_embedding)
-            loss += mse_loss / normalization_factor
+        # mask3d_loss = {}
+        # if args.no_objects:
+        #     # batch["cells_targets"] = batch["cells_targets"].to(mask3d_output.device)
+        #     # print(len(batch["cells_targets"]))
+        #     mask3d_loss = criterion_mask3d(mask3d_output, batch["cells_targets"], mask_type="masks")
+        #     # print(f"mask3d_loss: {mask3d_loss}")
+        #     for k in list(mask3d_loss.keys()):
+        #         # print(k)
+        #         if k in criterion_mask3d.weight_dict:
+        #             # print(f"mask3d_loss[k]: {mask3d_loss[k]}")
+        #             mask3d_loss[k] *= criterion_mask3d.weight_dict[k]
+        #         else:
+        #             # remove this loss if not specified in `weight_dict`
+        #             mask3d_loss.pop(k)
+        #     if not args.freeze_cell_encoder:
+        #         loss += sum(mask3d_loss.values())
+
 
         loss.backward()
-        if args.two_optimizers:
-            optimizer_cell_encoder.step()
-            optimizer_other.step()
-        else:
-            optimizer.step()
+        if (i_batch + 1) % args.acc_step == 0:
+            if args.two_optimizers:
+                optimizer_cell_encoder.step()
+                optimizer_other.step()
+                optimizer_cell_encoder.zero_grad()
+                optimizer_other.zero_grad()
+            else:
+                optimizer.step()
+                optimizer.zero_grad()
+
 
         epoch_losses.append(loss.item())
         batches.append(batch)
 
-        if i_batch % 80 == 0 and not args.use_semantic_head and not args.no_objects:
-            print(f"\r{i_batch}/{len(dataloader)} loss {loss.item():0.2f}", end="", flush=False)
-        elif i_batch % 80 == 0 and args.use_semantic_head:
-            print(f"\r{i_batch}/{len(dataloader)} loss {loss.item():0.2f}, semantic loss {semantic_loss.item():0.2f}", end="", flush=False)
-        elif i_batch % 5 == 0 and args.no_objects and args.distill_query_embedding:
-            print(f"\r{i_batch}/{len(dataloader)} distill_query_embedding loss {mse_loss.item():0.2f}", end="", flush=False)
-        elif i_batch % 80 == 0 and args.no_objects and not args.freeze_cell_encoder:
-            print(f"\r{i_batch}/{len(dataloader)} loss {loss.item():0.2f}, instance segmentation loss {sum(mask3d_loss.values()):0.2f}, retrieval_loss {loss.item() - sum(mask3d_loss.values()):0.2f}", end="", flush=False)
-        elif i_batch % 80 == 0 and args.no_objects and args.freeze_cell_encoder:
-            print(f"\r{i_batch}/{len(dataloader)} instance segmentation loss {sum(mask3d_loss.values()):0.2f}, retrieval_loss {loss.item():0.2f}", end="", flush=False)
+        if i_batch % 5 == 0 and args.no_objects:
+            print(f"\r{i_batch}/{len(dataloader)} distill_cell_embedding_loss {cell_mse_loss.item():0.2f}", end="", flush=False)
+        # elif i_batch % 80 == 0 and args.no_objects and not args.freeze_cell_encoder:
+        #     print(f"\r{i_batch}/{len(dataloader)} loss {loss.item():0.2f}, instance segmentation loss {sum(mask3d_loss.values()):0.2f}, retrieval_loss {loss.item() - sum(mask3d_loss.values()):0.2f}", end="", flush=False)
+        # elif i_batch % 80 == 0 and args.no_objects and args.freeze_cell_encoder:
+        #     print(f"\r{i_batch}/{len(dataloader)} instance segmentation loss {sum(mask3d_loss.values()):0.2f}, retrieval_loss {loss.item():0.2f}", end="", flush=False)
     return np.mean(epoch_losses), batches
 
 
 @torch.no_grad()
-def eval_epoch(model, dataloader, args, return_encodings=False, return_texts=False):
+def eval_epoch(student_model, dataloader, args, return_encodings=False, return_texts=False):
     """Top-k retrieval for each pose against all cells in the dataset.
 
     Args:
@@ -162,10 +146,8 @@ def eval_epoch(model, dataloader, args, return_encodings=False, return_texts=Fal
     args.use_semantic_head = False
 
     print("start eval")
-    if torch.cuda.device_count() == 1:
-       model = nn.DataParallel(model)
 
-    model.eval()  # Now eval() seems to increase results
+    student_model.eval()  # Now eval() seems to increase results
     accuracies = {k: [] for k in args.top_k}
     accuracies_close = {k: [] for k in args.top_k}
 
@@ -173,12 +155,20 @@ def eval_epoch(model, dataloader, args, return_encodings=False, return_texts=Fal
     # num_samples = len(dataloader.dataset) if isinstance(dataloader, DataLoader) else np.sum([len(batch['texts']) for batch in dataloader])
     if args.dataset == "K360_cell":
         cells_dataset = dataloader.dataset.get_cell_dataset()
-        cells_dataloader = DataLoader(
-            cells_dataset,
-            batch_size=args.batch_size,
-            collate_fn=Kitti360CoarseDataset.collate_fn_cell,
-            shuffle=False,
-        )
+        if not args.no_offset_idx:
+            cells_dataloader = DataLoader(
+                cells_dataset,
+                batch_size=args.batch_size,
+                collate_fn=Kitti360CoarseDataset.collate_fn_cell,
+                shuffle=False,
+            )
+        else:
+            cells_dataloader = DataLoader(
+                cells_dataset,
+                batch_size=args.batch_size,
+                collate_fn=Kitti360CoarseDataset.collate_fn_cell_no_offset,
+                shuffle=False,
+            )
     else:
         cells_dataset = dataloader.dataset.get_cell_dataset()
         cells_dataloader = DataLoader(
@@ -204,7 +194,7 @@ def eval_epoch(model, dataloader, args, return_encodings=False, return_texts=Fal
     for batch in dataloader:
         # text_enc = model.encode_text(batch["texts"])
         # print("batch['texts_submap']:", batch["texts_submap"])
-        text_enc, text_clip_feature = model.module.encode_text_submap(batch["texts"])
+        text_enc, text_clip_feature = student_model.encode_text_submap(batch["texts"])
         texts_eval.extend(batch["texts"])
         # text_enc, text_clip_feature = model.encode_text_submap(batch["texts"])
         # text_enc_obj, text_clip_feature_obj = model.encode_text_objects(batch["texts_objects"])
@@ -228,28 +218,16 @@ def eval_epoch(model, dataloader, args, return_encodings=False, return_texts=Fal
         class_total = {classname: 0 for classname in known_classes}
 
     # Encode the database side
-    index_offset = 0
+    index_offset = 0  # different offset idx
     for batch in cells_dataloader:
-        if args.teacher_model:
-            cell_enc, mask3d_output = model.module.encode_cell_distill(
-                batch["cells_coordinates"], batch["cells_features"],
-                batch["cells_targets"], batch["cells_inverse_map"],
-                batch["cells_points"], batch["cells_colors"],
-                num_query=24,
-                freeze_cell_encoder=args.freeze_cell_encoder,
-                use_queries=args.use_queries)
-
-        elif args.no_objects:
-            cell_enc, mask3d_output = model.module.encode_cell(
-                batch["cells_coordinates"], batch["cells_features"],
-               batch["cells_targets"], batch["cells_inverse_map"],
-               batch["cells_points"], batch["cells_colors"], num_query=24,
-               freeze_cell_encoder=args.freeze_cell_encoder,
-               use_queries=args.use_queries)
-
-        else:
-            cell_enc = model.module.encode_objects(batch["objects"], batch["object_points"])
-        batch_size = len(cell_enc)
+        cell_enc, mask3d_output = student_model.encode_cell_distill(
+            batch["cells_coordinates"], batch["cells_features"],
+            batch["cells_targets"], batch["cells_inverse_map"],
+            batch["cells_points"], batch["cells_colors"],
+            num_query=24,
+            freeze_cell_encoder=args.freeze_cell_encoder,
+            use_queries=args.use_queries,
+            offset=not args.no_offset_idx)
 
         cell_encodings[index_offset : index_offset + batch_size, :] = (
             cell_enc.cpu().detach().numpy()
@@ -259,10 +237,6 @@ def eval_epoch(model, dataloader, args, return_encodings=False, return_texts=Fal
 
     top_retrievals = {}  # {query_idx: top_cell_ids}
     for query_idx in range(len(text_encodings)):
-        if args.ranking_loss != "triplet":  # Asserted above
-            scores = cell_encodings[:] @ text_encodings[query_idx]
-            assert len(scores) == len(dataloader.dataset.all_cells)  # TODO: remove
-            sorted_indices = np.argsort(-1.0 * scores)  # High -> low
 
         sorted_indices = sorted_indices[0 : np.max(args.top_k)]
 
@@ -325,6 +299,29 @@ def load_checkpoint_with_missing_or_exsessive_keys(checkpoint, model):
 
     model.load_state_dict(state_dict)
     return model
+
+
+def load_query_teacher(checkpoint, model):
+    state_dict = torch.load(checkpoint)
+    correct_dict = dict(model.state_dict())
+
+    # if parametrs have different shape, it will randomly initialize
+    for key in correct_dict.keys():
+        if key not in state_dict:
+            print(f"{key} not in loaded checkpoint")
+            state_dict.update({key: correct_dict[key]})
+        elif state_dict[key].shape != correct_dict[key].shape:
+            print(
+                f"incorrect shape {key}:{state_dict[key].shape} vs {correct_dict[key].shape}"
+            )
+            state_dict.update({key: correct_dict[key]})
+        else:
+            # print(f"correct shape {key}")
+            pass
+
+    model.load_state_dict(state_dict)
+    return model
+
 
 
 if __name__ == "__main__":
@@ -439,22 +436,40 @@ if __name__ == "__main__":
                 shuffle_hints=True,
                 flip_poses=True,
             )
-        dataloader_train = DataLoader(
-            dataset_train,
-            batch_size=args.batch_size,
-            collate_fn=Kitti360CoarseDataset.collate_fn_cell,
-            shuffle=args.shuffle,
-            pin_memory=True
-        )
+        if not args.no_offset_idx:
+            dataloader_train = DataLoader(
+                dataset_train,
+                batch_size=args.batch_size,
+                collate_fn=Kitti360CoarseDataset.collate_fn_cell,
+                shuffle=args.shuffle,
+                pin_memory=True
+            )
 
-        dataset_val = Kitti360CoarseDatasetMulti(args.base_path, SCENE_NAMES_VAL, val_transform)
-        dataloader_val = DataLoader(
-            dataset_val,
-            batch_size=args.batch_size,
-            collate_fn=Kitti360CoarseDataset.collate_fn_cell,
-            shuffle=False,
-            pin_memory=True
-        )
+            dataset_val = Kitti360CoarseDatasetMulti(args.base_path, SCENE_NAMES_VAL, val_transform)
+            dataloader_val = DataLoader(
+                dataset_val,
+                batch_size=args.batch_size,
+                collate_fn=Kitti360CoarseDataset.collate_fn_cell,
+                shuffle=False,
+                pin_memory=True
+            )
+        else:
+            dataloader_train = DataLoader(
+                dataset_train,
+                batch_size=args.batch_size,
+                collate_fn=Kitti360CoarseDataset.collate_fn_cell_no_offset,
+                shuffle=args.shuffle,
+                pin_memory=True
+            )
+
+            dataset_val = Kitti360CoarseDatasetMulti(args.base_path, SCENE_NAMES_VAL, val_transform)
+            dataloader_val = DataLoader(
+                dataset_val,
+                batch_size=args.batch_size,
+                collate_fn=Kitti360CoarseDataset.collate_fn_cell_no_offset,
+                shuffle=False,
+                pin_memory=True
+            )
     print(
         "Words-diff:",
         set(dataset_train.get_known_words()).difference(set(dataset_val.get_known_words())),
@@ -487,46 +502,38 @@ if __name__ == "__main__":
     last_model_save_path = None
 
     for lr in learning_rates:
+        args.teacher_model = True
+        teacher_model = CellRetrievalNetwork(
+            dataset_train.get_known_classes(),
+            COLOR_NAMES_K360,
+            dataset_train.get_known_words(),
+            args,
+        )
+        state_dict = torch.load(args.teacher_ckpt)
+        teacher_model.load_state_dict(state_dict)
+        print("full teacher model loaded")
+
+        args.teacher_model = False
+        student_model = CellRetrievalNetwork(
+            dataset_train.get_known_classes(),
+            COLOR_NAMES_K360,
+            dataset_train.get_known_words(),
+            args,
+        )
         if args.continue_path:
-            model = torch.load(args.continue_path)
+            state_dict = torch.load(args.continue_path)
+            student_model.load_state_dict(state_dict)
+            print("full student model loaded")
+
         else:
-            model = CellRetrievalNetwork(
-                dataset_train.get_known_classes(),
-                COLOR_NAMES_K360,
-                dataset_train.get_known_words(),
-                args,
-            )
-
-        if args.no_objects:
-            # correct_dict = dict(model.state_dict())
-            # for key in correct_dict.keys():
-            #    print(key)
-            # pass
-            model = load_checkpoint_with_missing_or_exsessive_keys(args.mask3d_ckpt, model)
-            # print(model)
-            # quit()
-            # load mask3d
-
+            student_model = load_checkpoint_with_missing_or_exsessive_keys(args.mask3d_ckpt, student_model)
             print("mask3d model loaded")
-        # 检查是否有多个 GPU 可用
-
-        if torch.cuda.device_count() > 1:
-            print("Let's use", torch.cuda.device_count(), "GPUs!")
-            # 封装模型以在多 GPU 上运行
-            devices = [torch.device("cuda:{}".format(i)) for i in range(torch.cuda.device_count())]
-            model = model.to("cuda")
-            model = nn.DataParallel(model, device_ids=[0, 1])
-        else:
-            model = model.to(device)
+        teacher_model = teacher_model.to(device)
+        student_model = student_model.to(device)
 
         if args.two_optimizers:
-            # cell_encoder_params = list(model.cell_encoder.parameters())
-            # other_params = []
-            # for name, param in model.named_parameters():
-            #     if param not in cell_encoder_params:
-            #         other_params.append(param)
             cell_encoder_params, other_params = [], []
-            for name, param in model.named_parameters():
+            for name, param in student_model.named_parameters():
                 # print(name, param.size())
                 if "cell_encoder" in name:
                     # print(name, param.size(), "in cell_encoder params")
@@ -537,26 +544,13 @@ if __name__ == "__main__":
             optimizer_cell_encoder = optim.Adam(cell_encoder_params, lr=lr/1000)
             optimizer_other = optim.Adam(other_params, lr=lr)
 
-        elif args.distill_query_embedding:  # only optimize the query embedding layer
-            query_embedding_params = model.object_encoder.query_linear.parameters()
-            optimizer = optim.Adam(query_embedding_params, lr=lr)
-
         else:
-            optimizer = optim.Adam(model.parameters(), lr=lr)
+            optimizer = optim.Adam(student_model.parameters(), lr=lr)
 
-        if args.ranking_loss == "pairwise":
-            criterion = PairwiseRankingLoss(margin=args.margin)
-        if args.ranking_loss == "hardest":
-            criterion = HardestRankingLoss(margin=args.margin)
-        if args.ranking_loss == "triplet":
-            criterion = nn.TripletMarginLoss(margin=args.margin)
         if args.ranking_loss == "CLIP":
             criterion = ClipLoss()
 
         criterion_class = SemanticLoss(CLASS_TO_INDEX)
-        # print("criterion_class:", dataset_train.get_known_classes(), len(dataset_train.get_known_classes()))
-        # quit()
-        # criterion_color = nn.CrossEntropyLoss()
         matcher = HungarianMatcher(cost_class=2, cost_mask=5, cost_dice=2, num_points=-1)
         weight_dict = {
             "loss_ce": matcher.cost_class,
@@ -608,7 +602,7 @@ if __name__ == "__main__":
             # val_acc, val_acc_close, val_retrievals = eval_epoch(model, dataloader_val, args)
             # quit()
 
-            loss, train_batches = train_epoch(model, dataloader_train, args)
+            loss, train_batches = train_epoch(teacher_model, student_model, dataloader_train, args)
             # train_acc, train_retrievals = eval_epoch(model, train_batches, args)
             time_end_epoch = time.time()
             print(f"Epoch {epoch} in {time_end_epoch - time_start_epoch:0.2f}.")
@@ -618,7 +612,7 @@ if __name__ == "__main__":
                 # train_acc, train_acc_close, train_retrievals = eval_epoch(
                 #     model, dataloader_train, args
                 # )  # TODO/CARE: Is this ok? Send in batches again?
-                val_acc, val_acc_close, val_retrievals = eval_epoch(model, dataloader_val, args)
+                val_acc, val_acc_close, val_retrievals = eval_epoch(teacher_model, student_model, dataloader_val, args)
                 time_end_eval = time.time()
                 print(f"Evaluation in {time_end_eval - time_start_eval:0.2f}.")
 
@@ -645,10 +639,11 @@ if __name__ == "__main__":
                 print("\n", flush=True)
 
             # Saving best model (w/ early stopping)
-            if epoch >= args.epochs // 8:
+            if epoch >= 0:
+            # if epoch >= args.epochs // 8:
                 acc = val_acc[max(args.top_k)]
                 if acc > best_val_accuracy:
-                    model_path = f"./checkpoints/{dataset_name}/coarse_cont{cont}_acc{acc:0.2f}_lr{args.lr_idx}_ecl{int(args.class_embed)}_eco{int(args.color_embed)}_p{args.pointnet_numpoints}_npa{int(args.no_pc_augment)}_nca{int(args.no_cell_augment)}_f-{feats}_no_gt_instance_{args.no_objects}_query_{args.use_query}.pth"
+                    model_path = f"./checkpoints/{dataset_name}/coarse_cont{cont}_acc{acc:0.2f}_lr{args.lr_idx}_ecl{int(args.class_embed)}_eco{int(args.color_embed)}_p{args.pointnet_numpoints}_npa{int(args.no_pc_augment)}_nca{int(args.no_cell_augment)}_f-{feats}_no_gt_instance_{args.no_objects}_query_{args.use_queries}.pth"
                     if not osp.isdir(osp.dirname(model_path)):
                         os.mkdir(osp.dirname(model_path))
 
@@ -658,7 +653,7 @@ if __name__ == "__main__":
                             model_path = model_path.replace(".pth", "_state_dict.pth")
                             if args.teacher_model:
                                 model_path = model_path.replace("_state_dict.pth", "_teacher_state_dict.pth")
-                            torch.save(model.state_dict(), model_path)
+                            torch.save(student_model.state_dict(), model_path)
                             if (
                                 last_model_save_path is not None
                                 and last_model_save_path != model_path
@@ -671,7 +666,7 @@ if __name__ == "__main__":
                             print(f"Error saving model!", str(e))
                     else:
                         try:
-                            torch.save(model, model_path)
+                            torch.save(student_model, model_path)
                             if (
                                 last_model_save_path is not None
                                 and last_model_save_path != model_path

@@ -21,7 +21,7 @@ class Mask3D(nn.Module):
     def __init__(
         self,
         hidden_dim = 128,
-        num_queries = 16,
+        num_queries = 24,
         num_heads = 8,
         dim_feedforward = 1024,
         sample_sizes = [200, 800, 3200, 12800, 51200],
@@ -260,7 +260,14 @@ class Mask3D(nn.Module):
         self, x, point2segment=None, raw_coordinates=None, is_eval=False
     ):
         pcd_features, aux = self.backbone(x)  # aux is a list of features of different levels
-
+        # print(len(aux))
+        # # for i in range(len(aux)):
+        # #     for j in range(len(aux[i].decomposed_features)):
+        # #         print("aux feature: ", aux[i].decomposed_features[j].shape)
+        # for i in range(len(aux[-1].decomposed_features)):
+        #     print("aux feature: ", aux[0].decomposed_features[i].shape)
+        # for i in range(len(pcd_features.decomposed_features)):
+        #     print("pcd feature: ", pcd_features.decomposed_features[i].shape)
         batch_size = len(x.decomposed_coordinates)
 
         with torch.no_grad():
@@ -574,6 +581,7 @@ class Mask3D(nn.Module):
         ret_attn_mask=True,
         point2segment=None,
         coords=None,
+        return_mask_feat=False,
     ):
         query_feat = self.decoder_norm(query_feat)
         mask_embed = self.mask_embed_head(query_feat)
@@ -621,6 +629,8 @@ class Mask3D(nn.Module):
 
         if point2segment is not None:
             return outputs_class, output_segments
+        elif return_mask_feat:
+            return outputs_class, outputs_mask.decomposed_features
         else:
             return outputs_class, outputs_mask.decomposed_features
 

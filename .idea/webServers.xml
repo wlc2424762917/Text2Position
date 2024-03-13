@@ -23,6 +23,13 @@
           </advancedOptions>
         </fileTransfer>
       </webServer>
+      <webServer id="185c9a71-253d-492e-a4e4-f280167815a6" name="t2p_planner">
+        <fileTransfer rootFolder="/home/planner" accessType="SFTP" host="192.168.3.101" port="22" sshConfigId="7c444666-1f97-4ead-99b7-d4bc24c309bb" sshConfig="planner@192.168.3.101:22 password">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" keepAliveTimeout="0" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
     </option>
   </component>
 </project>

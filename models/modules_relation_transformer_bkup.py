@@ -275,6 +275,7 @@ class RelationMultiHeadSelfAttention(nn.Module):
 
         self.fc_out = nn.Linear(heads * self.head_dim, embed_size)
         self.fc_fuse = nn.Linear(2 * self.head_dim, self.head_dim)
+        self.fc_fuse_1 = nn.Linear(self.head_dim, 1)
 
     def forward(self, values, keys, query, mask, relation):
         N = query.shape[0]
@@ -306,7 +307,9 @@ class RelationMultiHeadSelfAttention(nn.Module):
         # 通过一个mlp
         energy = self.fc_fuse(energy)
         # 将d维sum到一起
-        energy = energy.sum(dim=-1, keepdim=True)
+        # energy = energy.sum(dim=-1, keepdim=True)
+        energy = self.fc_fuse_1(energy) # (N, query_len, key_len, 1)
+        energy = energy.squeeze(-1) # (N, query_len, key_len)
 
         if mask is not None:
             energy = energy.masked_fill(mask == 1, float("-1e20"))

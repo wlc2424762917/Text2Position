@@ -136,6 +136,42 @@ def calc_pose_error(
         return np.mean(errors)
 
 
+def calc_pose_error_no_superglue(
+    gt_coords, pred_coords, use_mid_pred=False, return_samples=False
+):
+    """Calculates the mean error of a batch by averaging the positions of all matches objects plus corresp. offsets.
+    All calculations are in x-y-plane.
+
+    Args:
+        objects (List[List[Object3D]]): Objects-list for each sample in the batch.
+        matches0 (np.ndarray): SuperGlue matching output of the batch.
+        poses (np.ndarray): Ground-truth poses [batch_size, 3]
+        offsets (List[np.ndarray], optional): List of offset vectors for all hints. Zero offsets are used if not given.
+        use_mid_pred (bool, optional): If set, predicts the center of the cell regardless of matches and offsets. Defaults to False.
+
+    Returns:
+        [float]: Mean error.
+    """
+    assert len(gt_coords) == len(pred_coords)
+    # assert isinstance(poses[0], Pose)
+
+    batch_size, pad_size = gt_coords.shape
+
+    errors = []
+    for i_sample in range(batch_size):
+        if use_mid_pred:
+            pose_prediction = np.array((0.5, 0.5))
+        else:
+            pose_prediction = pred_coords[i_sample]
+
+        errors.append(np.linalg.norm(gt_coords[i_sample] - pose_prediction))
+
+    if return_samples:
+        return errors
+    else:
+        return np.mean(errors)
+
+
 class PairwiseRankingLoss(torch.nn.Module):
     def __init__(self, margin=1.0):
         """Pairwise Ranking loss for retrieval training.
@@ -393,8 +429,6 @@ import torch.nn.functional as F
 from scipy.optimize import linear_sum_assignment
 from torch import nn
 from torch.cuda.amp import autocast
-
-from detectron2.projects.point_rend.point_features import point_sample
 
 
 def batch_dice_loss(inputs: torch.Tensor, targets: torch.Tensor):

@@ -30,7 +30,7 @@ from datapreparation.kitti360pose.utils import SCENE_NAMES, SCENE_NAMES_TRAIN, S
 
 from training.args import parse_arguments
 from training.plots import plot_metrics
-from training.losses import MatchingLoss, calc_recall_precision, calc_pose_error
+from training.losses import MatchingLoss, calc_recall_precision, calc_pose_error, calc_pose_error_no_superglue
 
 
 def train_epoch(model, dataloader, args):
@@ -52,15 +52,35 @@ def train_epoch(model, dataloader, args):
 
         optimizer.zero_grad()
         # print(f"hints: {batch['hint_descriptions']}")
-        if args.language_encoder == "CLIP_text" or "T5":
-            output = model(batch["objects"], batch["texts"], batch["object_points"])
+        if not args.no_objects:
+            if args.language_encoder == "CLIP_text" or args.language_encoder == "T5":
+                output = model.encode_cell(batch["text"],batch["cells_coordinates"], batch["cells_features"], batch["cells_targets"], batch["cells_inverse_map"], batch["cells_points"], batch["cells_colors"], num_query = 24, freeze_cell_encoder=args.freeze_cell_encoder, use_queries=args.use_queries, offset=not args.no_offset_idx)
+            else:
+                output = model.encode_cell(batch["hint_descriptions"], batch["cells_coordinates"], batch["cells_features"], batch["cells_targets"], batch["cells_inverse_map"], batch["cells_points"], batch["cells_colors"], num_query = 24, freeze_cell_encoder=args.freeze_cell_encoder, use_queries=args.use_queries, offset=not args.no_offset_idx)
         else:
-            output = model(batch["objects"], batch["hint_descriptions"], batch["object_points"])
+            # TODO: add support for no-objects
+            if args.language_encoder == "CLIP_text" or args.language_encoder == "T5":
+                output = model(batch["objects"], batch["texts"], batch["object_points"])
+            else:
+                output = model(batch["objects"], batch["hint_descriptions"], batch["object_points"])
 
         if args.only_matcher == True:
             loss_matching = criterion_matching(output.P, batch["all_matches"])
             loss_offsets = torch.tensor(-1, dtype=torch.float, device=DEVICE)
             loss = loss_matching
+
+        elif args.no_superglue == True:
+            loss_matching = torch.tensor(0, dtype=torch.float, device=DEVICE)
+            # print(f"batch[pose.pose]: {batch['poses_coords']}")
+            gt_coords = torch.tensor(batch['poses_coords'], dtype=torch.float, device=DEVICE)
+            # print(f"gt_coords: {gt_coords.shape}")
+            loss_offsets = criterion_offsets(
+                output.offsets, gt_coords[:, :2]
+            )
+            loss = (
+                    loss_matching + 5 * loss_offsets
+            )  # Currently fixed alpha seems enough, cell normed ∈ [0, 1]
+
         else:
             loss_matching = criterion_matching(output.P, batch["all_matches"])
             loss_offsets = criterion_offsets(
@@ -83,43 +103,66 @@ def train_epoch(model, dataloader, args):
             print(str(e))
             print()
             print(batch["all_matches"])
-
-        recall, precision = calc_recall_precision(
-            batch["matches"],
-            output.matches0.cpu().detach().numpy(),
-            output.matches1.cpu().detach().numpy(),
-        )
+        if not args.no_superglue:
+            recall, precision = calc_recall_precision(
+                batch["matches"],
+                output.matches0.cpu().detach().numpy(),
+                output.matches1.cpu().detach().numpy(),
+            )
+        else:
+            recall = precision = -1
 
         stats.loss.append(loss.item())
         stats.loss_offsets.append(loss_offsets.item())
         stats.recall.append(recall)
         stats.precision.append(precision)
-
-        stats.pose_mid.append(
-            calc_pose_error(
-                batch["objects"],
-                output.matches0.detach().cpu().numpy(),
-                batch["poses"],
-                offsets=output.offsets.detach().cpu().numpy(),
-                use_mid_pred=True,
+        if not args.no_superglue:
+            stats.pose_mid.append(
+                calc_pose_error(
+                    batch["objects"],
+                    output.matches0.detach().cpu().numpy(),
+                    batch["poses"],
+                    offsets=output.offsets.detach().cpu().numpy(),
+                    use_mid_pred=True,
+                )
             )
-        )
-        stats.pose_mean.append(
-            calc_pose_error(
-                batch["objects"],
-                output.matches0.detach().cpu().numpy(),
-                batch["poses"],
-                offsets=None,
+            stats.pose_mean.append(
+                calc_pose_error(
+                    batch["objects"],
+                    output.matches0.detach().cpu().numpy(),
+                    batch["poses"],
+                    offsets=None,
+                )
             )
-        )
-        stats.pose_offsets.append(
-            calc_pose_error(
-                batch["objects"],
-                output.matches0.detach().cpu().numpy(),
-                batch["poses"],
-                offsets=output.offsets.detach().cpu().numpy(),
+            stats.pose_offsets.append(
+                calc_pose_error(
+                    batch["objects"],
+                    output.matches0.detach().cpu().numpy(),
+                    batch["poses"],
+                    offsets=output.offsets.detach().cpu().numpy(),
+                )
             )
-        )
+        else:
+            stats.pose_mid.append(
+                calc_pose_error_no_superglue(
+                    gt_coords = gt_coords[:, :2].detach().cpu().numpy(),
+                    pred_coords = output.offsets.detach().cpu().numpy(),
+                    use_mid_pred=True,
+                )
+            )
+            stats.pose_mean.append(
+                calc_pose_error_no_superglue(
+                    gt_coords=gt_coords[:, :2].detach().cpu().numpy(),
+                    pred_coords=output.offsets.detach().cpu().numpy(),
+                )
+            )
+            stats.pose_offsets.append(
+                calc_pose_error_no_superglue(
+                    gt_coords=gt_coords[:, :2].detach().cpu().numpy(),
+                    pred_coords=output.offsets.detach().cpu().numpy(),
+                )
+            )
+            # print(f"Pose errors: {stats.pose_mid[-1]:0.3f} {stats.pose_mean[-1]:0.3f} {stats.pose_offsets[-1]:0.3f}")
 
     for key in stats.keys():
         stats[key] = np.mean(stats[key])
@@ -129,7 +172,7 @@ def train_epoch(model, dataloader, args):
 @torch.no_grad()
 def eval_epoch(model, dataloader, args):
     # model.eval() #TODO/NOTE: set eval() or not?
-
+    print("Evaluating")
     stats = EasyDict(
         recall=[],
         precision=[],
@@ -139,44 +182,82 @@ def eval_epoch(model, dataloader, args):
     )
 
     for i_batch, batch in enumerate(dataloader):
-        if args.language_encoder == "CLIP_text" or "T5":
-            output = model(batch["objects"], batch["texts"], batch["object_points"])
+        if not args.no_objects:
+            if args.language_encoder == "CLIP_text" or args.language_encoder == "T5":
+                output = model.encode_cell(batch["text"], batch["cells_coordinates"], batch["cells_features"],
+                                           batch["cells_targets"], batch["cells_inverse_map"], batch["cells_points"],
+                                           batch["cells_colors"], num_query=24,
+                                           freeze_cell_encoder=args.freeze_cell_encoder, use_queries=args.use_queries, offset=not args.no_offset_idx)
+            else:
+                output = model.encode_cell(batch["hint_descriptions"], batch["cells_coordinates"],
+                                           batch["cells_features"], batch["cells_targets"], batch["cells_inverse_map"],
+                                           batch["cells_points"], batch["cells_colors"], num_query=24,
+                                           freeze_cell_encoder=args.freeze_cell_encoder, use_queries=args.use_queries, offset=not args.no_offset_idx)
         else:
-            output = model(batch["objects"], batch["hint_descriptions"], batch["object_points"])
+            # TODO: add support for no-objects
+            if args.language_encoder == "CLIP_text" or args.language_encoder == "T5":
+                output = model(batch["objects"], batch["texts"], batch["object_points"])
+            else:
+                output = model(batch["objects"], batch["hint_descriptions"], batch["object_points"])
 
-        recall, precision = calc_recall_precision(
-            batch["matches"],
-            output.matches0.cpu().detach().numpy(),
-            output.matches1.cpu().detach().numpy(),
-        )
-        stats.recall.append(recall)
-        stats.precision.append(precision)
+        if not args.no_superglue:
+            recall, precision = calc_recall_precision(
+                batch["matches"],
+                output.matches0.cpu().detach().numpy(),
+                output.matches1.cpu().detach().numpy(),
+            )
+            stats.recall.append(recall)
+            stats.precision.append(precision)
 
-        stats.pose_mid.append(
-            calc_pose_error(
-                batch["objects"],
-                output.matches0.detach().cpu().numpy(),
-                batch["poses"],
-                offsets=output.offsets.detach().cpu().numpy(),
-                use_mid_pred=True,
+            stats.pose_mid.append(
+                calc_pose_error(
+                    batch["objects"],
+                    output.matches0.detach().cpu().numpy(),
+                    batch["poses"],
+                    offsets=output.offsets.detach().cpu().numpy(),
+                    use_mid_pred=True,
+                )
             )
-        )
-        stats.pose_mean.append(
-            calc_pose_error(
-                batch["objects"],
-                output.matches0.detach().cpu().numpy(),
-                batch["poses"],
-                offsets=None,
+            stats.pose_mean.append(
+                calc_pose_error(
+                    batch["objects"],
+                    output.matches0.detach().cpu().numpy(),
+                    batch["poses"],
+                    offsets=None,
+                )
             )
-        )
-        stats.pose_offsets.append(
-            calc_pose_error(
-                batch["objects"],
-                output.matches0.detach().cpu().numpy(),
-                batch["poses"],
-                offsets=output.offsets.detach().cpu().numpy(),
+            stats.pose_offsets.append(
+                calc_pose_error(
+                    batch["objects"],
+                    output.matches0.detach().cpu().numpy(),
+                    batch["poses"],
+                    offsets=output.offsets.detach().cpu().numpy(),
+                )
             )
-        )
+        else:
+            stats.recall.append(-1)
+            stats.precision.append(-1)
+
+            gt_coords = torch.tensor(batch['poses_coords'], dtype=torch.float, device=DEVICE)
+            stats.pose_mid.append(
+                calc_pose_error_no_superglue(
+                    gt_coords = gt_coords[:, :2].detach().cpu().numpy(),
+                    pred_coords = output.offsets.detach().cpu().numpy(),
+                    use_mid_pred=True,
+                )
+            )
+            stats.pose_mean.append(
+                calc_pose_error_no_superglue(
+                    gt_coords=gt_coords[:, :2].detach().cpu().numpy(),
+                    pred_coords=output.offsets.detach().cpu().numpy(),
+                )
+            )
+            stats.pose_offsets.append(
+                calc_pose_error_no_superglue(
+                    gt_coords=gt_coords[:, :2].detach().cpu().numpy(),
+                    pred_coords=output.offsets.detach().cpu().numpy(),
+                )
+            )
 
     for key in stats.keys():
         stats[key] = np.mean(stats[key])
@@ -196,7 +277,7 @@ def eval_conf(model, dataset, args):
                 dataset[idx],
             ]
         )
-        if args.language_encoder == "CLIP_text":
+        if args.language_encoder == "CLIP_text" or args.language_encoder == "T5":
             hints = data["texts"]
         else:
             hints = data["hint_descriptions"]
@@ -212,7 +293,7 @@ def eval_conf(model, dataset, args):
                     dataset[idx],
                 ]
             )
-            if args.language_encoder == "CLIP_text" or "T5":
+            if args.language_encoder == "CLIP_text" or args.language_encoder == "T5":
                 hints = data["texts"]
             else:
                 hints = data["hint_descriptions"]
@@ -271,6 +352,50 @@ if __name__ == "__main__":
         dataloader_val = DataLoader(
             dataset_val, batch_size=args.batch_size, collate_fn=Kitti360FineDataset.collate_fn
         )
+
+    elif args.dataset == "K360_cell":
+        from dataloading.kitti360pose.poses_sp import Kitti360FineDataset, Kitti360FineDatasetMulti
+        if args.no_pc_augment:
+            train_transform = T.FixedPoints(args.pointnet_numpoints)
+            val_transform = T.FixedPoints(args.pointnet_numpoints)
+        else:
+            train_transform = T.Compose(
+                [
+                    T.FixedPoints(args.pointnet_numpoints),
+                    T.RandomRotate(120, axis=2),
+                    T.NormalizeScale(),
+                ]
+            )
+            val_transform = T.Compose([T.FixedPoints(args.pointnet_numpoints), T.NormalizeScale()])
+
+        dataset_train = Kitti360FineDatasetMulti(
+            args.base_path, SCENE_NAMES_TRAIN, train_transform, args, flip_pose=False
+        )  # No cell-augment for fine
+        if args.no_offset_idx:
+            dataloader_train = DataLoader(
+                dataset_train,
+                batch_size=args.batch_size,
+                collate_fn=Kitti360FineDataset.collate_fn_cell_no_offset,
+                shuffle=args.shuffle,
+            )
+        else:
+            dataloader_train = DataLoader(
+                dataset_train,
+                batch_size=args.batch_size,
+                collate_fn=Kitti360FineDataset.collate_fn_cell,
+                shuffle=args.shuffle,
+            )
+
+        dataset_val = Kitti360FineDatasetMulti(args.base_path, SCENE_NAMES_VAL, val_transform, args)
+        if args.no_offset_idx:
+            dataloader_val = DataLoader(
+                dataset_val, batch_size=args.batch_size, collate_fn=Kitti360FineDataset.collate_fn_cell_no_offset
+            )
+        else:
+            dataloader_val = DataLoader(
+                dataset_val, batch_size=args.batch_size, collate_fn=Kitti360FineDataset.collate_fn_cell
+            )
+
 
     print(sorted(dataset_train.get_known_words()))
     print(sorted(dataset_val.get_known_words()))
@@ -335,11 +460,31 @@ if __name__ == "__main__":
         # Warm-up
         optimizer = optim.Adam(model.parameters(), lr=1e-5)
         scheduler = optim.lr_scheduler.ExponentialLR(optimizer, args.lr_gamma)
-
+        if args.no_objects:
+            best_val_recallPrecision = 99
+        else:
+            best_val_recallPrecision = -1
         for epoch in range(args.epochs):
             if epoch == 3:
                 optimizer = optim.Adam(model.parameters(), lr=lr)
                 scheduler = optim.lr_scheduler.ExponentialLR(optimizer, args.lr_gamma)
+
+            # test val
+            # val_out = eval_epoch(model, dataloader_val, args)  # CARE: which loader for val!
+            # val_stats_recall[lr].append(val_out.recall)
+            # val_stats_precision[lr].append(val_out.precision)
+            # val_stats_pose_mid[lr].append(val_out.pose_mid)
+            # val_stats_pose_mean[lr].append(val_out.pose_mean)
+            # val_stats_pose_offsets[lr].append(val_out.pose_offsets)
+            # print(
+            #     (
+            #
+            #         f"v-recall {val_out.recall:0.2f} v-precision {val_out.precision:0.2f} v-mean {val_out.pose_mean:0.2f} v-offset {val_out.pose_offsets:0.2f} "
+            #     ),
+            #     flush=True,
+            # )
+            # # test val
+            # quit()
 
             train_out = train_epoch(model, dataloader_train, args)
 
@@ -358,9 +503,10 @@ if __name__ == "__main__":
             val_stats_pose_mean[lr].append(val_out.pose_mean)
             val_stats_pose_offsets[lr].append(val_out.pose_offsets)
 
-            print()
-            eval_conf(model, dataset_val, args)
-            print()
+            if not args.no_superglue:
+                print()
+                eval_conf(model, dataset_val, args)
+                print()
 
             if scheduler:
                 scheduler.step()
@@ -374,27 +520,50 @@ if __name__ == "__main__":
                 flush=True,
             )
 
-            if epoch >= args.epochs // 6:
-                acc = np.mean((val_out.recall, val_out.precision))
-                if acc > best_val_recallPrecision:
-                    model_path = f"./checkpoints/{dataset_name}/fine_cont{cont}_acc{acc:0.2f}_lr{args.lr_idx}_obj-{args.num_mentioned}-{args.pad_size}_ecl{int(args.class_embed)}_eco{int(args.color_embed)}_p{args.pointnet_numpoints}_npa{int(args.no_pc_augment)}_nca{int(args.no_cell_augment)}_f-{feats}.pth"
-                    if not osp.isdir(osp.dirname(model_path)):
-                        os.mkdir(osp.dirname(model_path))
+            if epoch >= 0:
+                if args.no_objects:
+                    acc = np.mean((val_out.pose_offsets, val_out.pose_mean))
+                    if acc < best_val_recallPrecision:
+                        model_path = f"./checkpoints/{dataset_name}/fine_cont{cont}_acc{acc:0.2f}_lr{args.lr_idx}_obj-{args.num_mentioned}-{args.pad_size}_ecl{int(args.class_embed)}_eco{int(args.color_embed)}_p{args.pointnet_numpoints}_npa{int(args.no_pc_augment)}_nca{int(args.no_cell_augment)}_f-{feats}_no_obj_{args.no_objects}.pth"
+                        if not osp.isdir(osp.dirname(model_path)):
+                            os.mkdir(osp.dirname(model_path))
 
-                    print("Saving model to", model_path)
-                    try:
-                        torch.save(model, model_path)
-                        if (
-                            last_model_save_path is not None
-                            and last_model_save_path != model_path
-                            and osp.isfile(last_model_save_path)
-                        ):
-                            print("Removing", last_model_save_path)
-                            os.remove(last_model_save_path)
-                        last_model_save_path = model_path
-                    except Exception as e:
-                        print("Error saving model!", str(e))
-                    best_val_recallPrecision = acc
+                        print("Saving model to", model_path)
+                        try:
+                            # torch.save(model, model_path)
+                            torch.save(model.state_dict(), model_path)
+                            if (
+                                    last_model_save_path is not None
+                                    and last_model_save_path != model_path
+                                    and osp.isfile(last_model_save_path)
+                            ):
+                                print("Removing", last_model_save_path)
+                                os.remove(last_model_save_path)
+                            last_model_save_path = model_path
+                        except Exception as e:
+                            print("Error saving model!", str(e))
+                        best_val_recallPrecision = acc
+                else:
+                    acc = np.mean((val_out.recall, val_out.precision))
+                    if acc > best_val_recallPrecision:
+                        model_path = f"./checkpoints/{dataset_name}/fine_cont{cont}_acc{acc:0.2f}_lr{args.lr_idx}_obj-{args.num_mentioned}-{args.pad_size}_ecl{int(args.class_embed)}_eco{int(args.color_embed)}_p{args.pointnet_numpoints}_npa{int(args.no_pc_augment)}_nca{int(args.no_cell_augment)}_f-{feats}.pth"
+                        if not osp.isdir(osp.dirname(model_path)):
+                            os.mkdir(osp.dirname(model_path))
+
+                        print("Saving model to", model_path)
+                        try:
+                            torch.save(model, model_path)
+                            if (
+                                last_model_save_path is not None
+                                and last_model_save_path != model_path
+                                and osp.isfile(last_model_save_path)
+                            ):
+                                print("Removing", last_model_save_path)
+                                os.remove(last_model_save_path)
+                            last_model_save_path = model_path
+                        except Exception as e:
+                            print("Error saving model!", str(e))
+                        best_val_recallPrecision = acc
 
         print()
 

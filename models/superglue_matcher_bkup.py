@@ -14,7 +14,7 @@ import os
 import pickle
 from easydict import EasyDict
 
-from models.mask3d_modules import get_mlp, LanguageEncoder
+from models.modules import get_mlp, LanguageEncoder
 from models.superglue import SuperGlue
 from models.object_encoder import ObjectEncoder
 
@@ -22,6 +22,8 @@ from models.object_encoder import ObjectEncoder
 
 
 from datapreparation.kitti360pose.imports import Object3d as Object3d_K360
+from models.modules import get_mlp, LanguageEncoder, Clip_LanguageEncoder, MaxPoolMultiHeadSelfAttention, Clip_LanguageEncoder_TransformerFuser, MaxPoolRelationMultiHeadSelfAttention, T5_LanguageEncoder
+from models.cross_attention import TransformerCrossEncoderLayer, TransformerCrossEncoder
 
 
 def get_mlp_offset(dims: List[int], add_batchnorm=False) -> nn.Sequential:
@@ -68,16 +70,75 @@ class SuperGlueMatch(torch.nn.Module):
 
         self.object_encoder = ObjectEncoder(args.embed_dim, known_classes, known_colors, args)
 
-        self.language_encoder = LanguageEncoder(known_words, self.embed_dim, bi_dir=True)
+        # object fuse
+        if args.only_clip_semantic_feature:
+            self.linear_obj = nn.Linear(512+self.embed_dim, self.embed_dim)
+        if args.use_clip_semantic_feature:
+            self.linear_obj = nn.Linear(512+2*self.embed_dim, self.embed_dim)
+        embed_dim = self.embed_dim
+
+        # language encoder
+        if args.language_encoder == "CLIP_text":
+            self.language_encoder = Clip_LanguageEncoder(clip_version="ViT-B/32")
+            self.language_linear = nn.Linear(512, embed_dim)
+
+        elif args.language_encoder == "T5":
+            self.language_encoder = T5_LanguageEncoder(T5_model_path=args.T5_model_path, T5_model_freeze=self.args.text_freeze)
+            self.language_linear = nn.Linear(512, embed_dim)
+
+        elif args.language_encoder == "T5_and_CLIP_text":
+            self.lanuage_encoder_t5 = T5_LanguageEncoder(T5_model_path=args.T5_model_path, T5_model_freeze=self.args.text_freeze)
+            self.language_linear_t5 = nn.Linear(512, embed_dim)
+            self.lanuage_encoder_clip = Clip_LanguageEncoder(clip_version="ViT-B/32")
+            self.language_linear_clip = nn.Linear(512, embed_dim)
+
+        else:
+            self.language_encoder = LanguageEncoder(known_words, self.embed_dim, bi_dir=True)
+
+        if args.use_cross_attention:
+            cross_encoder_layer = TransformerCrossEncoderLayer(
+                d_model=embed_dim,  # Embedding dimension
+                nhead=8,  # Number of attention heads
+                dim_feedforward=2048,  # Dimension of feedforward network
+                dropout=0.1,  # Dropout rate
+                activation="relu",  # Activation function
+                normalize_before=True,  # Layer normalization
+                sa_val_has_pos_emb=False,  # Self-attention value has positional embedding
+                ca_val_has_pos_emb=False,  # Cross-attention value has positional embedding
+                attention_type='dot_prod'  # Type of attention mechanism
+            )
+
+            # Create a TransformerCrossEncoder with a single layer
+            self.transformer_cross_encoder = TransformerCrossEncoder(
+                cross_encoder_layer=cross_encoder_layer,
+                num_layers=2,
+                norm=nn.LayerNorm(embed_dim),
+                return_intermediate=False
+            )
+        # offset prediction
+        # if args.only_clip_semantic_feature:
+        #     self.mlp_offsets = get_mlp_offset([512, 512 // 2, 2])
+        # else:
+        #     self.mlp_offsets = get_mlp_offset([self.embed_dim, self.embed_dim // 2, 2])
+
         self.mlp_offsets = get_mlp_offset([self.embed_dim, self.embed_dim // 2, 2])
 
-        config = {
-            "descriptor_dim": self.embed_dim,
-            "GNN_layers": ["self", "cross"] * self.num_layers,
-            # 'GNN_layers': ['self', ] * self.num_layers,
-            "sinkhorn_iterations": self.sinkhorn_iters,
-            "match_threshold": 0.2,
-        }
+        if args.only_clip_semantic_feature:
+            config = {
+                "descriptor_dim": self.embed_dim,
+                "GNN_layers": ["self", "cross"] * self.num_layers,
+                # 'GNN_layers': ['self', ] * self.num_layers,
+                "sinkhorn_iterations": self.sinkhorn_iters,
+                "match_threshold": 0.2,
+            }
+        else:
+            config = {
+                "descriptor_dim": self.embed_dim,
+                "GNN_layers": ["self", "cross"] * self.num_layers,
+                # 'GNN_layers': ['self', ] * self.num_layers,
+                "sinkhorn_iterations": self.sinkhorn_iters,
+                "match_threshold": 0.2,
+            }
         self.superglue = SuperGlue(config)
 
         print("DEVICE", self.get_device())
@@ -85,40 +146,106 @@ class SuperGlueMatch(torch.nn.Module):
     def forward(self, objects, hints, object_points):
         batch_size = len(objects)
         num_objects = len(objects[0])
+        # print(f"batch_size: {batch_size}, num_objects: {num_objects}")
         """
         Encode the hints
         """
-        hint_encodings = torch.stack(
-            [self.language_encoder(hint_sample) for hint_sample in hints]
-        )  # [B, num_hints, DIM]
-        hint_encodings = F.normalize(hint_encodings, dim=-1)  # Norming those too
+        if self.args.language_encoder == "CLIP_text" or self.args.language_encoder == "T5":
+            description_encodings_ori = self.language_encoder(hints)
+            description_encodings = self.language_linear(description_encodings_ori)
+            # if self.embed_dim == 512:
+            #     description_encodings += description_encodings_ori
+            hint_encodings = F.normalize(description_encodings)
+        elif self.args.language_encoder == "T5_and_CLIP_text":
+            description_encodings_t5 = self.lanuage_encoder_t5(hints)
+            description_encodings_t5 = self.language_linear_t5(description_encodings_t5)
+            description_encodings = self.lanuage_encoder_clip(hints)
+            description_encodings = self.language_linear_clip(description_encodings)
+            hint_encodings = F.normalize(description_encodings)
+        else:
+            hint_encodings = torch.stack(
+                [self.language_encoder(hint_sample) for hint_sample in hints]
+            )  # [B, num_hints, DIM]
+            hint_encodings = F.normalize(hint_encodings, dim=-1)  # Norming those too
+        # print("hint_encodings", hint_encodings.shape)
 
         """
         Object encoder
         """
         object_encodings, class_embedding, color_embedding, pos_embedding, num_points_embedding, relation_embedding = self.object_encoder(objects, object_points)
-        object_encodings = object_encodings.reshape((batch_size, num_objects, self.embed_dim))
-        object_encodings = F.normalize(object_encodings, dim=-1)
+        if self.args.only_clip_semantic_feature or self.args.use_clip_semantic_feature:
+            object_encodings = self.linear_obj(object_encodings)
+            object_encodings = object_encodings.reshape((batch_size, num_objects, self.embed_dim))
+            object_encodings = F.normalize(object_encodings, dim=-1)
+        else:
+            object_encodings = object_encodings.reshape((batch_size, num_objects, self.embed_dim))
+            object_encodings = F.normalize(object_encodings, dim=-1)
 
         """
         Match object-encodings to hint-encodings
         """
         desc0 = object_encodings.transpose(1, 2)  # [B, DIM, num_obj]
         desc1 = hint_encodings.transpose(1, 2)  # [B, DIM, num_hints]
-        # print("desc", desc0.shape, desc1.shape)
+        # print("obj:", desc0.shape, "hint:", desc1.shape)
 
         matcher_output = self.superglue(desc0, desc1)
 
+        # Initialize a list to store the extracted objects
+        extracted_objects = []
+        hints = matcher_output["matches1"]
+        # print(hints.shape)
+        # print(len(hints))
+        # all_pad = 0
+        for batch_idx in range(len(hints)):
+            # Extract indices for this batch
+            indices = hints[batch_idx]
+
+            # Filter out -1 (or any invalid index)
+            valid_indices = indices[indices >= 0]
+
+            # Extract objects corresponding to valid indices
+            objs = object_encodings[batch_idx, valid_indices]
+
+            # 计算需要补齐的长度
+            pad_size = 6 - objs.shape[0]
+            # all_pad += pad_size
+            # 如果需要，进行补齐
+            if pad_size > 0:
+                objs = F.pad(objs, (0, 0, 0, pad_size), 'constant', 0)
+
+            # Append the extracted objects to the list
+            extracted_objects.append(objs)
+        extracted_objects = torch.stack(extracted_objects)
+        # print("extracted_objects", extracted_objects.shape, "hints:", hint_encodings.shape)
+        # print("all_pad", all_pad)
+
+        # TODO: cross attention between object and hint
+        if self.args.use_cross_attention:
+            if self.args.language_encoder == "T5_and_CLIP_text":
+                description_encodings_t5, extracted_objects = description_encodings_t5.transpose(0, 1), extracted_objects.transpose(0, 1)
+                hint_encodings, object_encodings, _ = self.transformer_cross_encoder(description_encodings_t5, extracted_objects)
+                hint_encodings, object_encodings = hint_encodings[0].transpose(0, 1), object_encodings[0].transpose(0, 1)
+            else:
+                # print(f"hint_encodings: {hint_encodings.shape}, extracted_objects: {extracted_objects.shape}")
+                hint_encodings_c, extracted_objects_c = hint_encodings.transpose(0, 1), extracted_objects.transpose(0, 1)
+                hint_encodings_c, object_encodings_c, _ = self.transformer_cross_encoder(hint_encodings_c, extracted_objects_c)
+                hint_encodings, object_encodings = hint_encodings_c[0].transpose(0, 1) + hint_encodings, object_encodings_c[0].transpose(0, 1) + extracted_objects
         """
         Predict offsets from hints
         """
         offsets = self.mlp_offsets(hint_encodings)  # [B, num_hints, 2]
 
         outputs = EasyDict()
-        outputs.P = matcher_output["P"]
-        outputs.matches0 = matcher_output["matches0"]
-        outputs.matches1 = matcher_output["matches1"]
+        outputs.P = matcher_output["P"]  # [B, num_obj, num_hints]
+        outputs.matches0 = matcher_output["matches0"]  # [B, num_obj]
+        outputs.matches1 = matcher_output["matches1"]  # [B, num_hints]
+
         outputs.offsets = offsets
+
+        # print(f"output_p: {outputs.P[0]}")
+        # print("matcher_output", outputs.matches0.shape, outputs.matches1.shape)
+        # print("matcher_output", outputs.matches0[0], outputs.matches1[0])
+        # quit()
 
         outputs.matching_scores0 = matcher_output["matching_scores0"]
         outputs.matching_scores1 = matcher_output["matching_scores1"]

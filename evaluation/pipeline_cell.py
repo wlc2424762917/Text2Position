@@ -17,8 +17,8 @@ from scipy.spatial.distance import cdist
 from evaluation.args import parse_arguments
 from evaluation.utils import calc_sample_accuracies, print_accuracies
 
-from dataloading.kitti360pose.cells import Kitti360CoarseDataset, Kitti360CoarseDatasetMulti
-from dataloading.kitti360pose.eval import Kitti360TopKDataset
+from dataloading.kitti360pose.cells_sp import Kitti360CoarseDataset, Kitti360CoarseDatasetMulti
+from dataloading.kitti360pose.eval_sp import Kitti360TopKDataset
 
 from datapreparation.kitti360pose.utils import SCENE_NAMES_TEST, SCENE_NAMES_VAL
 
@@ -27,6 +27,10 @@ from training.utils import plot_retrievals
 from models.superglue_matcher import get_pos_in_cell
 
 import torch_geometric.transforms as T
+from datapreparation.kitti360pose.utils import COLOR_NAMES as COLOR_NAMES_K360
+
+from models.cell_retrieval import CellRetrievalNetwork
+from models.superglue_matcher import SuperGlueMatch
 
 """
 TODO:
@@ -108,18 +112,14 @@ def run_coarse(model, dataloader, args):
             retrievals.append(retrieved_cell_ids)
     else:
         # Run retrieval model to obtain top-cells
-        retrieval_accuracies, retrieval_accuracies_close, retrievals, texts_eval = eval_epoch_retrieval(
-            model, dataloader, args, return_encodings=False, return_texts=True
+        retrieval_accuracies, retrieval_accuracies_close, retrievals = eval_epoch_retrieval(
+            model, dataloader, args
         )
         retrievals = [retrievals[idx] for idx in range(len(retrievals))]  # Dict -> list
         print("Retrieval Accs:")
         print(retrieval_accuracies)
         print("Retrieval Accs Close:")
         print(retrieval_accuracies_close)
-        # save text_eval to a txt
-        with open("text_eval.txt", "w") as f:
-            for item in texts_eval:
-                f.write("%s\n" % item)
         assert len(retrievals) == len(dataloader.dataset.all_poses)
 
     # Gather the accuracies for each sample
@@ -191,18 +191,30 @@ def run_fine(model, retrievals, dataloader, args):
     poses_w = []
 
     t0 = time.time()
-    for i_sample, sample in enumerate(dataset_topk):
-        output = model(sample["objects"], sample["hint_descriptions"], sample["object_points"])
-        matches.append(output.matches0.detach().cpu().numpy())
+    for i_sample, batch in enumerate(dataset_topk):
+        # output = model(sample["objects"], sample["hint_descriptions"], sample["object_points"])
+        if args.language_encoder == "CLIP_text" or args.language_encoder == "T5":
+            output = model.encode_cell(batch["text"], batch["cells_coordinates"], batch["cells_features"],
+                                       batch["cells_targets"], batch["cells_inverse_map"], batch["cells_points"],
+                                       batch["cells_colors"], num_query=24,
+                                       freeze_cell_encoder=args.freeze_cell_encoder, use_queries=args.use_queries, offset=not args.no_offset_idx)
+        else:
+            output = model.encode_cell(batch["hint_descriptions"], batch["cells_coordinates"], batch["cells_features"],
+                                       batch["cells_targets"], batch["cells_inverse_map"], batch["cells_points"],
+                                       batch["cells_colors"], num_query=24,
+                                       freeze_cell_encoder=args.freeze_cell_encoder, use_queries=args.use_queries, offset=not args.no_offset_idx)
+
+        # matches.append(output.matches0.detach().cpu().numpy())
         offsets.append(output.offsets.detach().cpu().numpy())
-        assert len(output.matches0.shape) == 2
-        out_matches = output.matches0.detach().cpu().numpy()
-        confs = np.sum(out_matches >= 0, axis=1)  # * 10 + np.sum(out_match_confs[out_ma])
+        # assert len(output.matches0.shape) == 2
+        # out_matches = output.matches0.detach().cpu().numpy()
+        # confs = np.sum(out_matches >= 0, axis=1)  # * 10 + np.sum(out_match_confs[out_ma])
+        confs = -1
         assert len(confs) == num_samples
         confidences.append(confs)
 
-        cell_ids.append([cell.id for cell in sample["cells"]])
-        poses_w.append(sample["poses"][0].pose_w)
+        cell_ids.append([cell.id for cell in batch["cells"]])
+        poses_w.append(batch["poses"][0].pose_w)
     print(f"Ran matching for {len(dataset_topk)} queries in {time.time() - t0:0.2f}.")
 
     assert len(matches) == len(offsets) == len(retrievals)
@@ -217,10 +229,12 @@ def run_fine(model, retrievals, dataloader, args):
     accuracies_mean = {k: {t: [] for t in args.threshs} for k in args.top_k}
     accuracies_offset = {k: {t: [] for t in args.threshs} for k in args.top_k}
     accuracies_mean_conf = {1: {t: [] for t in args.threshs}}
+
+
     for i_sample in range(len(retrievals)):
         pose = dataloader.dataset.all_poses[i_sample]
         top_cells = [all_cells_dict[cell_id] for cell_id in retrievals[i_sample]]
-        sample_matches = matches[i_sample]
+        # sample_matches = matches[i_sample]
         sample_offsets = offsets[i_sample]
         sample_confidences = confidences[i_sample]
 
@@ -241,18 +255,19 @@ def run_fine(model, retrievals, dataloader, args):
             while len(cell.objects) < args.pad_size:
                 cell.objects.append(Object3d.create_padding())
 
-            cell_matches = sample_matches[i_cell]
+            # cell_matches = sample_matches[i_cell]
             cell_offsets = sample_offsets[i_cell]
-            pos_in_cells_mean.append(
-                get_pos_in_cell(cell.objects, cell_matches, np.zeros_like(cell_offsets))
-            )
-            pos_in_cells_offsets.append(get_pos_in_cell(cell.objects, cell_matches, cell_offsets))
-        pos_in_cells_mean = np.array(pos_in_cells_mean)
+            # pos_in_cells_mean.append(get_pos_in_cell(cell.objects, cell_matches, np.zeros_like(cell_offsets))
+            # pos_in_cells_offsets.append(get_pos_in_cell(cell.objects, cell_matches, cell_offsets))
+
+            pos_in_cells_offsets.append(sample_offsets)  # pred_coords
+
+        # pos_in_cells_mean = np.array(pos_in_cells_mean)
         pos_in_cells_offsets = np.array(pos_in_cells_offsets)
 
-        accs_mean = calc_sample_accuracies(
-            pose, top_cells, pos_in_cells_mean, args.top_k, args.threshs
-        )
+        # accs_mean = calc_sample_accuracies(
+        #     pose, top_cells, pos_in_cells_mean, args.top_k, args.threshs
+        # )
         accs_offsets = calc_sample_accuracies(
             pose, top_cells, pos_in_cells_offsets, args.top_k, args.threshs
         )
@@ -270,15 +285,15 @@ def run_fine(model, retrievals, dataloader, args):
 
         for k in args.top_k:
             for t in args.threshs:
-                accuracies_mean[k][t].append(accs_mean[k][t])
+                # accuracies_mean[k][t].append(accs_mean[k][t])
                 accuracies_offset[k][t].append(accs_offsets[k][t])
-                accuracies_mean_conf[1][t].append(accs_mean_conf[1][t])
+                # accuracies_mean_conf[1][t].append(accs_mean_conf[1][t])
 
     for k in args.top_k:
         for t in args.threshs:
-            accuracies_mean[k][t] = np.mean(accuracies_mean[k][t])
+            # accuracies_mean[k][t] = np.mean(accuracies_mean[k][t])
             accuracies_offset[k][t] = np.mean(accuracies_offset[k][t])
-            accuracies_mean_conf[1][t] = np.mean(accuracies_mean_conf[1][t])
+            # accuracies_mean_conf[1][t] = np.mean(accuracies_mean_conf[1][t])
 
     return accuracies_mean, accuracies_offset, accuracies_mean_conf
 
@@ -298,26 +313,56 @@ if __name__ == "__main__":
 
     if args.use_test_set:
         dataset_retrieval = Kitti360CoarseDatasetMulti(
-            args.base_path, SCENE_NAMES_TEST, transform, shuffle_hints=False, flip_poses=False, use_alt_descriptions=args.use_alt_descriptions
+            args.base_path, SCENE_NAMES_TEST, transform, shuffle_hints=False, flip_poses=False
         )
     else:
         dataset_retrieval = Kitti360CoarseDatasetMulti(
-            args.base_path, SCENE_NAMES_VAL, transform, shuffle_hints=False, flip_poses=False, use_alt_descriptions=args.use_alt_descriptions
+            args.base_path, SCENE_NAMES_VAL, transform, shuffle_hints=False, flip_poses=False
         )
-    dataloader_retrieval = DataLoader(
-        dataset_retrieval,
-        batch_size=args.batch_size,
-        collate_fn=Kitti360CoarseDataset.collate_fn,
-        shuffle=False,
-    )
+    if not args.no_offset_idx:
+        dataloader_retrieval = DataLoader(
+            dataset_retrieval,
+            batch_size=args.batch_size,
+            collate_fn=Kitti360CoarseDataset.collate_fn_cell,
+            shuffle=False,
+        )
+    else:
+        dataloader_retrieval = DataLoader(
+            dataset_retrieval,
+            batch_size=args.batch_size,
+            collate_fn=Kitti360CoarseDataset.collate_fn_cell_no_offset,
+            shuffle=False,
+        )
 
     # dataset_cell_only = dataset_retrieval.get_cell_dataset()
 
     # Load models
-    model_retrieval = torch.load(args.path_coarse, map_location=torch.device("cpu"))
-    # model_matching = torch.load(args.path_fine, map_location=torch.device("cpu"))
-    model_retrieval.to(device)
-    # model_matching.to(device)
+    if args.no_objects:
+        model_retrieval = CellRetrievalNetwork(
+                dataset_retrieval.get_known_classes(),
+                COLOR_NAMES_K360,
+                dataset_retrieval.get_known_words(),
+                args,
+            )
+        model_retrieval.load_state_dict(torch.load(args.path_coarse, map_location=torch.device("cpu")))
+        model_retrieval.to(device)
+
+        model_fine = SuperGlueMatch(
+                dataset_retrieval.get_known_classes(),
+                COLOR_NAMES_K360,
+                dataset_retrieval.get_known_words(),
+                args,
+            )
+        model_fine.load_state_dict(torch.load(args.path_fine, map_location=torch.device("cpu")))
+        model_fine.to(device)
+        model_fine = torch.load(args.path_fine, map_location=torch.device("cpu"))
+        model_fine.to(device)
+
+    else:
+        model_retrieval = torch.load(args.path_coarse, map_location=torch.device("cpu"))
+        # model_matching = torch.load(args.path_fine, map_location=torch.device("cpu"))
+        model_retrieval.to(device)
+        # model_matching.to(device)
 
     # eval_conf(model_matching, dataset_retrieval)
     # quit()
@@ -332,15 +377,15 @@ if __name__ == "__main__":
         quit()
 
     # Run fine
-    # if args.fine_oracle or args.fine_random:
-    #     accuracies = run_fine_oracle(
-    #         retrievals, dataloader_retrieval, args, random_oracle=args.fine_random
-    #     )
-    #     print_accuracies(accuracies, "Fine (oracle)")
-    # else:
-    #     accuracies_mean, accuracies_offsets, accuracies_mean_conf = run_fine(
-    #         model_matching, retrievals, dataloader_retrieval, args
-    #     )
-    #     print_accuracies(accuracies_mean, "Fine (mean)")
-    #     print_accuracies(accuracies_offsets, "Fine (offsets)")
-    #     print_accuracies(accuracies_mean_conf, "Fine (mean-conf)")
+    if args.fine_oracle or args.fine_random:
+        accuracies = run_fine_oracle(
+            retrievals, dataloader_retrieval, args, random_oracle=args.fine_random
+        )
+        print_accuracies(accuracies, "Fine (oracle)")
+    else:
+        accuracies_mean, accuracies_offsets, accuracies_mean_conf = run_fine(
+            model_fine, retrievals, dataloader_retrieval, args
+        )
+        print_accuracies(accuracies_mean, "Fine (mean)")
+        print_accuracies(accuracies_offsets, "Fine (offsets)")
+        print_accuracies(accuracies_mean_conf, "Fine (mean-conf)")

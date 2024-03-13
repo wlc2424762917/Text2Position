@@ -27,7 +27,125 @@ from datapreparation.kitti360pose.imports import Object3d, Cell, Pose
 from datapreparation.kitti360pose.drawing import show_pptk, show_objects, plot_cell
 from dataloading.kitti360pose.base import Kitti360BaseDataset
 from dataloading.kitti360pose.utils import batch_object_points, flip_pose_in_cell
+import yaml
+from copy import deepcopy
+import MinkowskiEngine as ME
+import albumentations as A
+from pathlib import Path
 
+
+def get_all_points(objects):
+    all_xyz = np.concatenate([obj.xyz for obj in objects], axis=0)
+    all_rgb = np.concatenate([obj.rgb for obj in objects], axis=0)
+    #
+    all_semantic = np.array([CLASS_TO_INDEX[obj.label] for obj in objects for _ in obj.xyz])
+    all_instance = np.array([obj.id for obj in objects for _ in obj.xyz])
+
+    return all_xyz, all_rgb, all_semantic, all_instance
+
+def load_yaml(filepath):
+    with open(filepath) as f:
+        # file = yaml.load(f, Loader=Loader)
+        file = yaml.load(f)
+    return file
+
+def select_correct_labels(labels, num_labels):
+    number_of_validation_labels = 0
+    number_of_all_labels = 0
+    for (
+        k,
+        v,
+    ) in labels.items():
+        number_of_all_labels += 1
+        if v["validation"]:
+            number_of_validation_labels += 1
+
+    if num_labels == number_of_all_labels:
+        return labels
+    elif num_labels == number_of_validation_labels:
+        valid_labels = dict()
+        for (
+            k,
+            v,
+        ) in labels.items():
+            if v["validation"]:
+                valid_labels.update({k: v})
+        return valid_labels
+    else:
+        msg = f"""not available number labels, select from:
+        {number_of_validation_labels}, {number_of_all_labels}"""
+        raise ValueError(msg)
+
+def remap_from_zero(labels):
+    labels_db = load_yaml(Path("/home/planner/wlc/Mask3D/data/processed/t2p/label_database.yaml"))
+    label_info = select_correct_labels(labels_db, num_labels=22)
+    labels[
+        ~np.isin(labels, list(label_info.keys()))
+    ] = 255
+    # remap to the range from 0
+    for i, k in enumerate(label_info.keys()):
+        # print(f"k: {k}, i: {i}")
+        labels[labels == k] = i
+    return labels
+
+def prepare_data(points, colors, all_semantic, all_instance, add_raw_coordinates=True):
+    # combine all_semantic and all_instance to shape [n, 2]
+    all_semantic = all_semantic[:, np.newaxis]  # [n, 1]
+    all_instance = all_instance[:, np.newaxis]  # [n, 1]
+    labels = np.concatenate((all_semantic, all_instance), axis=1)  # [n, 2]
+    segments = np.ones((labels.shape[0], 1), dtype=np.float32)
+    labels = labels.astype(np.int32)
+    if labels.size > 0:
+        labels[:, 0] = remap_from_zero(labels[:, 0])
+        # always add instance
+        # if not self.add_instance:
+        #     # taking only first column, which is segmentation label, not instance
+        #     labels = labels[:, 0].flatten()[..., None]
+
+    labels = np.hstack((labels, segments[...].astype(np.int32)))
+    # normalization for point cloud features
+    points[:, 0:3] = points[:, 0:3] * 30
+
+    # TODO: before centering or not
+    points_ori = deepcopy(points)
+    points[:, :3] = points[:, :3] - points[:, :3].min(0)
+    points -= points.mean(0)  # center
+
+    color_mean = (0.3003134802903658, 0.30814036261976874, 0.2635079033375686)
+    color_std = (0.2619693782684099, 0.2592597800138297, 0.2448327959589299)
+    normalize_color = A.Normalize(mean=color_mean, std=color_std)
+
+    colors_ori = deepcopy(colors)
+    colors = colors * 255.
+
+    pseudo_image = colors.astype(np.uint8)[np.newaxis, :, :]
+    colors = np.squeeze(normalize_color(image=pseudo_image)["image"])
+
+    features = colors
+    if add_raw_coordinates:
+        features = np.hstack((features, points))  # last three columns are coordinates
+
+    coords = np.floor(points / 0.15)
+    _, _, unique_map, inverse_map = ME.utils.sparse_quantize(
+        coordinates=coords,
+        features=features,
+        return_index=True,
+        return_inverse=True,
+    )
+    # print(f"coords: {coords.shape}")
+    # print(f"unique_map: {unique_map.shape}")
+    # print(f"unique_map: {unique_map}")
+    # print(f"inverse_map: {inverse_map.shape}")
+    # print(f"inverse_map: {inverse_map}")
+    sample_coordinates = coords[unique_map]
+    sample_coordinates = torch.from_numpy(sample_coordinates).int()
+    sample_features = features[unique_map]
+    sample_features = torch.from_numpy(sample_features).float()
+    sample_labels = labels[unique_map]
+    sample_labels = torch.from_numpy(sample_labels).long()
+    #print(f"sample_coordinates: {sample_coordinates.shape}")
+    # quit()
+    return sample_coordinates, points_ori, colors_ori, sample_features, unique_map, inverse_map, sample_labels
 
 def load_pose_and_cell(pose: Pose, cell: Cell, hints, pad_size, transform, args, flip_pose=False):
     assert pose.cell_id == cell.id
@@ -157,6 +275,11 @@ def load_pose_and_cell(pose: Pose, cell: Cell, hints, pad_size, transform, args,
     object_class_indices = [CLASS_TO_INDEX[obj.label] for obj in objects]
     object_color_indices = [COLOR_NAMES.index(obj.get_color_text()) for obj in objects]
 
+    all_xyz, all_rgb, all_semantic, all_instance = get_all_points(cell.objects)
+    coordinates, points, colors, features, unique_map, inverse_map, labels = prepare_data(all_xyz, all_rgb,
+                                                                                          all_semantic,
+                                                                                          all_instance)
+
     return {
         "poses": pose,
         "cells": cell,
@@ -168,11 +291,19 @@ def load_pose_and_cell(pose: Pose, cell: Cell, hints, pad_size, transform, args,
         "all_matches": all_matches,
         "offsets": np.array(offsets),
         "offsets_best_center": np.array(offsets_best_center),
-        # 'offsets_valid': offsets_valid,
+        'offsets_valid': offsets_valid,
         "object_class_indices": object_class_indices,
         "object_color_indices": object_color_indices,
 
         "poses_coords": pose.pose,
+
+        "cells_coordinates": coordinates,
+        "cells_points": points,
+        "cells_colors": colors,
+        "cells_features": features,
+        "cells_unique_map": unique_map,
+        "cells_inverse_map": inverse_map,
+        "cells_labels": labels,
     }
 
 

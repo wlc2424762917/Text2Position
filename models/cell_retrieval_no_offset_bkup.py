@@ -134,7 +134,7 @@ class CellRetrievalNetwork(torch.nn.Module):
         if self.args.no_objects:
             # self.cell_encoder = ResNet34(in_channels=3, out_channels=embed_dim, D=3)
             self.cell_encoder = Mask3D()
-            self.cell_encoder.eval()
+
 
         """
         Textual path
@@ -278,7 +278,7 @@ class CellRetrievalNetwork(torch.nn.Module):
     #     output = F.normalize(output.F)
     #     return output
 
-    def encode_cell(self, cell_coordinates, cells_features, target, inverse_map, batched_raw_coordinates=None, batched_raw_color=None, num_query = 24, freeze_cell_encoder=False, use_queries=False, offset=True):
+    def encode_cell(self, cell_coordinates, cells_features, target, inverse_map, batched_raw_coordinates=None, batched_raw_color=None, num_query = 24, freeze_cell_encoder=False, use_queries=False, offset=False):
         # print(f"cell_coordinates: {cell_coordinates.shape}, cells_features: {cells_features.shape}")
         # print(f"target_mask: {target[0]['masks'].shape}")
         # print(f"target_mask: {target[0]['masks']}")
@@ -343,6 +343,7 @@ class CellRetrievalNetwork(torch.nn.Module):
             center_queries = []
             color_queries = []
             rgb_queries = []
+
             queries_feature = []
 
             gt_class = target[i]['labels']
@@ -379,8 +380,8 @@ class CellRetrievalNetwork(torch.nn.Module):
                 color_b_mask_mean = np.mean(color_b_mask, axis=0)
                 dists = np.linalg.norm(color_b_mask_mean - COLORS, axis=1)
                 color_name = COLOR_NAMES[np.argmin(dists)]
-                if offset:
-                    c_label_i += 1
+                # if offset:
+                #     c_label_i += 1
                 # print(f"c_label_i: {c_label_i}, color_name: {color_name}", "center: ", torch.mean(coordinates_b_mask, dim=0)/30, f"c: {c}")
                 color_name_index = COLOR_NAMES.index(color_name)
                 color_queries.append(torch.from_numpy(np.array([color_name_index])).to(self.device))
@@ -444,11 +445,11 @@ class CellRetrievalNetwork(torch.nn.Module):
         x = F.normalize(x)
         # print(f"x shape: {x.shape}")
         # quit()
-        if self.args.distill_query_embedding:
+        if self.args.distill_query_embedding or self.args.use_queries:
             return x, output_dict, query_embedding, class_embeddings
         return x, output_dict
 
-    def encode_cell_distill(self, cell_coordinates, cells_features, target, inverse_map, batched_raw_coordinates=None, batched_raw_color=None, num_query = 24, freeze_cell_encoder=False, use_queries=False, offset=True, cell_feature=False, attention_feature=False):
+    def encode_cell_distill(self, cell_coordinates, cells_features, target, inverse_map, batched_raw_coordinates=None, batched_raw_color=None, num_query = 24, freeze_cell_encoder=False, use_queries=False, offset=True):
         # print(f"cell_coordinates: {cell_coordinates.shape}, cells_features: {cells_features.shape}")
         raw_coordinates =cells_features[:, -3:]
         cells_features = cells_features[:, :-3]
@@ -482,6 +483,23 @@ class CellRetrievalNetwork(torch.nn.Module):
         # print(f"indices: {match_indices}")
 
         queries = output_dict['queries']  # B, N, 128
+        # print(f"queries: {output_dict['queries'].shape}")
+        # print(f"pred_logits: {output_dict['pred_logits'].shape}")  # [B, N, Class_num]
+        # # argmax on the class_num dimension
+        # pred_class = torch.argmax(output_dict['pred_logits'], dim=-1)
+        # print(f"pred_logits[0]: {pred_class[0]}")
+        # print(f"pred_logits[1]: {pred_class[1]}")
+        # # print(f"pred_logits[1]: {output_dict['pred_logits'][1]}")
+        # # for i in range(len(output_dict['pred_masks'])):
+        # #     print(f"pred_masks: {output_dict['pred_masks'][i].shape}")
+        # quit()
+
+        # get pred class
+        # pred_class = torch.argmax(output_dict['pred_logits'], dim=-1, keepdim=True)
+        # print(f"pred_class shape: {pred_class.shape}")
+        # print(f"pred_logits[0]: {pred_class[0]}")
+        # print(f"pred_logits[1]: {pred_class[1]}")
+
         # get instance mask center and instance color and instance
         # TODO: add instance point num
         pred_class_list = []
@@ -531,8 +549,8 @@ class CellRetrievalNetwork(torch.nn.Module):
                 # print(f"m: {m.sum()}")
                 # print(f"c: {c}")
                 # print(f"c_label_i: {c_label_i}", f"c: {c}")
-                if c<4 or m.sum()==0 or c_label_i==21:
-                    continue
+                # if c<4 or m.sum()==0 or c_label_i==21:
+                #     continue
                 mask = m[inverse_map[i]]  # mapping the mask back to the original point scloud
                 coordinates_b = batched_raw_coordinates[i]
                 coordinates_b = torch.from_numpy(coordinates_b).to(self.device)
@@ -608,7 +626,7 @@ class CellRetrievalNetwork(torch.nn.Module):
         if self.args.teacher_model:
             embeddings, class_embeddings, color_embeddings, pos_embeddings, num_points_embeddings, relation_embedding = self.object_encoder.forward_cell(class_indices=gt_class_list, color_indices=gt_color_list, rgbs=gt_rgb_list, positions=gt_center_list)
         else: # TODO: change to teacher-student distill
-            embeddings, class_embeddings, color_embeddings, pos_embeddings, num_points_embeddings, relation_embedding = self.object_encoder.forward_cell(class_indices=pred_class_list, color_indices=color_queries_list, rgbs=rgb_queries_list, positions=center_queries_list, queries=queries_feature_list)
+            embeddings, class_embeddings, color_embeddings, pos_embeddings, num_points_embeddings, relation_embedding, query_embedding = self.object_encoder.forward_cell(class_indices=pred_class_list, color_indices=color_queries_list, rgbs=rgb_queries_list, positions=center_queries_list, queries=queries_feature_list)
 
         if self.use_relation_transformer:
             embeddings = embeddings.to(self.device)
@@ -617,14 +635,10 @@ class CellRetrievalNetwork(torch.nn.Module):
             embeddings = embeddings.to(self.device)
             x = self.attn_pooling(embeddings, batch)
 
-        x_ori = x
         x = F.normalize(x)
 
-        if cell_feature:
-            return x_ori, output_dict
-        elif attention_feature:
-            # TODO: add attention matrix
-            return x_ori, output_dict
+        if self.args.distill_cell_feature:
+            return x, output_dict, query_embedding, class_embeddings
         else:
             return x, output_dict
 

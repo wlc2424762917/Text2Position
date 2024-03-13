@@ -171,8 +171,6 @@ def load_pose_and_cell(pose: Pose, cell: Cell, hints, pad_size, transform, args,
         # 'offsets_valid': offsets_valid,
         "object_class_indices": object_class_indices,
         "object_color_indices": object_color_indices,
-
-        "poses_coords": pose.pose,
     }
 
 

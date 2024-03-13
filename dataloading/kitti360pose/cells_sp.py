@@ -70,7 +70,7 @@ class Kitti360CoarseDataset(Kitti360BaseDataset):
         self.cell_centers = np.array([cell.get_center()[0:2] for cell in self.cells])
 
         self.add_raw_coordinates = True
-        label_db_filepath = "/home/wanglichao/Mask3D/data/processed/t2p/label_database.yaml"
+        label_db_filepath = "/home/planner/wlc/Mask3D/data/processed/t2p/label_database.yaml"
         labels = self._load_yaml(Path(label_db_filepath))
         self._labels = self._select_correct_labels(labels, num_labels=22)
         self.ignore_label= 255
@@ -79,6 +79,8 @@ class Kitti360CoarseDataset(Kitti360BaseDataset):
         all_xyz = np.concatenate([obj.xyz for obj in objects], axis=0)
         all_rgb = np.concatenate([obj.rgb for obj in objects], axis=0)
         #
+        # for obj in objects:
+        #     print(f"obj.label: {obj.label}, {CLASS_TO_INDEX[obj.label]}, obj.color: {obj.get_color_text()}; obj.center: {obj.get_center()}")
         all_semantic = np.array([CLASS_TO_INDEX[obj.label] for obj in objects for _ in obj.xyz])
         all_instance = np.array([obj.id for obj in objects for _ in obj.xyz])
 
@@ -123,6 +125,7 @@ class Kitti360CoarseDataset(Kitti360BaseDataset):
         ] = self.ignore_label
         # remap to the range from 0
         for i, k in enumerate(self.label_info.keys()):
+            # print(f"k: {k}, i: {i}")
             labels[labels == k] = i
         return labels
 
@@ -136,7 +139,7 @@ class Kitti360CoarseDataset(Kitti360BaseDataset):
         all_semantic = all_semantic[:, np.newaxis]  # [n, 1]
         all_instance = all_instance[:, np.newaxis]  # [n, 1]
         labels = np.concatenate((all_semantic, all_instance), axis=1)  # [n, 2]
-        segments = np.ones((points.shape[0], 1), dtype=np.float32)
+        segments = np.ones((labels.shape[0], 1), dtype=np.float32)
         labels = labels.astype(np.int32)
         if labels.size > 0:
             labels[:, 0] = self._remap_from_zero(labels[:, 0])
@@ -148,7 +151,11 @@ class Kitti360CoarseDataset(Kitti360BaseDataset):
         labels = np.hstack((labels, segments[...].astype(np.int32)))
         # normalization for point cloud features
         points[:, 0:3] = points[:, 0:3] * 30
+
+        # TODO: before centering or not
+        points_ori = deepcopy(points)
         points[:, :3] = points[:, :3] - points[:, :3].min(0)
+
         # print(f"points min: {points.min(0)}")
         # print(f"points mean: {points.mean(0)}")
         points -= points.mean(0)  # center
@@ -157,6 +164,7 @@ class Kitti360CoarseDataset(Kitti360BaseDataset):
         color_std = (0.2619693782684099, 0.2592597800138297, 0.2448327959589299)
         normalize_color = A.Normalize(mean=color_mean, std=color_std)
 
+        colors_ori = deepcopy(colors)
         colors = colors * 255.
 
         pseudo_image = colors.astype(np.uint8)[np.newaxis, :, :]
@@ -166,26 +174,27 @@ class Kitti360CoarseDataset(Kitti360BaseDataset):
         if self.add_raw_coordinates:
             features = np.hstack((features, points))  # last three columns are coordinates
 
-        coords = np.floor(points / 0.025)
+        coords = np.floor(points / 0.15)
         _, _, unique_map, inverse_map = ME.utils.sparse_quantize(
             coordinates=coords,
             features=features,
             return_index=True,
             return_inverse=True,
         )
-
+        # print(f"coords: {coords.shape}")
+        # print(f"unique_map: {unique_map.shape}")
+        # print(f"unique_map: {unique_map}")
+        # print(f"inverse_map: {inverse_map.shape}")
+        # print(f"inverse_map: {inverse_map}")
         sample_coordinates = coords[unique_map]
-        coordinates = torch.from_numpy(sample_coordinates).int()
+        sample_coordinates = torch.from_numpy(sample_coordinates).int()
         sample_features = features[unique_map]
-        features = torch.from_numpy(sample_features).float()
+        sample_features = torch.from_numpy(sample_features).float()
         sample_labels = labels[unique_map]
         sample_labels = torch.from_numpy(sample_labels).long()
-
-        # coordinates, _ = ME.utils.sparse_collate(coords=coordinates, feats=features)
-        # features = torch.cat(features, dim=0)
-        # print(f"features: {features.shape}")
-        # print(f"labels: {sample_labels.shape}")
-        return coordinates, points, colors, features, unique_map, inverse_map, sample_labels
+        #print(f"sample_coordinates: {sample_coordinates.shape}")
+        # quit()
+        return sample_coordinates, points_ori, colors_ori, sample_features, unique_map, inverse_map, sample_labels
 
     def __getitem__(self, idx):
 
@@ -363,7 +372,7 @@ class Kitti360CoarseCellOnlyDataset(Dataset):
         self.cells = cells
         self.transform = transform
         self.add_raw_coordinates = True
-        label_db_filepath = "/home/wanglichao/Mask3D/data/processed/t2p/label_database.yaml"
+        label_db_filepath = "/home/planner/wlc/Mask3D/data/processed/t2p/label_database.yaml"
         labels = self._load_yaml(Path(label_db_filepath))
         self._labels = self._select_correct_labels(labels, num_labels=22)
         self.ignore_label= 255
@@ -371,11 +380,17 @@ class Kitti360CoarseCellOnlyDataset(Dataset):
     def get_all_points(self, objects):
         all_xyz = np.concatenate([obj.xyz for obj in objects], axis=0)
         all_rgb = np.concatenate([obj.rgb for obj in objects], axis=0)
+        #
+        all_semantic = np.array([CLASS_TO_INDEX[obj.label] for obj in objects for _ in obj.xyz])
+        all_instance = np.array([obj.id for obj in objects for _ in obj.xyz])
 
-        all_semantic = np.array([CLASS_TO_INDEX[obj.label] for obj in objects])
-        all_instance = np.array([obj.id for obj in objects])
+        clip_feature_center_pair = {}
+        for obj in objects:
+            obj_center = obj.get_center()
+            #  = obj.feature_2d
+            # clip_feature_center_pair[obj_center] = obj_clip_feature
 
-        return all_xyz, all_rgb, all_semantic, all_instance
+        return all_xyz, all_rgb, all_semantic, all_instance, clip_feature_center_pair
 
     def _select_correct_labels(self, labels, num_labels):
         number_of_validation_labels = 0
@@ -404,7 +419,7 @@ class Kitti360CoarseCellOnlyDataset(Dataset):
             {number_of_validation_labels}, {number_of_all_labels}"""
             raise ValueError(msg)
 
-    def _load_yaml(filepath):
+    def _load_yaml(self, filepath):
         with open(filepath) as f:
             # file = yaml.load(f, Loader=Loader)
             file = yaml.load(f)
@@ -419,6 +434,7 @@ class Kitti360CoarseCellOnlyDataset(Dataset):
             labels[labels == k] = i
         return labels
 
+    @property
     def label_info(self):
         """database file containing information labels used by dataset"""
         return self._labels
@@ -428,7 +444,7 @@ class Kitti360CoarseCellOnlyDataset(Dataset):
         all_semantic = all_semantic[:, np.newaxis]  # [n, 1]
         all_instance = all_instance[:, np.newaxis]  # [n, 1]
         labels = np.concatenate((all_semantic, all_instance), axis=1)  # [n, 2]
-        segments = np.ones((points.shape[0], 1), dtype=np.float32)
+        segments = np.ones((labels.shape[0], 1), dtype=np.float32)
         labels = labels.astype(np.int32)
         if labels.size > 0:
             labels[:, 0] = self._remap_from_zero(labels[:, 0])
@@ -436,18 +452,21 @@ class Kitti360CoarseCellOnlyDataset(Dataset):
             # if not self.add_instance:
             #     # taking only first column, which is segmentation label, not instance
             #     labels = labels[:, 0].flatten()[..., None]
-        labels = np.hstack((labels, segments[..., None].astype(np.int32)))
+
+        labels = np.hstack((labels, segments[...].astype(np.int32)))
         # normalization for point cloud features
         points[:, 0:3] = points[:, 0:3] * 30
+
+        # TODO: before centering or not
+        points_ori = deepcopy(points)
         points[:, :3] = points[:, :3] - points[:, :3].min(0)
-        # print(f"points min: {points.min(0)}")
-        # print(f"points mean: {points.mean(0)}")
         points -= points.mean(0)  # center
 
         color_mean = (0.3003134802903658, 0.30814036261976874, 0.2635079033375686)
         color_std = (0.2619693782684099, 0.2592597800138297, 0.2448327959589299)
         normalize_color = A.Normalize(mean=color_mean, std=color_std)
 
+        colors_ori = deepcopy(colors)
         colors = colors * 255.
 
         pseudo_image = colors.astype(np.uint8)[np.newaxis, :, :]
@@ -457,32 +476,35 @@ class Kitti360CoarseCellOnlyDataset(Dataset):
         if self.add_raw_coordinates:
             features = np.hstack((features, points))  # last three columns are coordinates
 
-        coords = np.floor(points / 0.025)
+        coords = np.floor(points / 0.15)
         _, _, unique_map, inverse_map = ME.utils.sparse_quantize(
             coordinates=coords,
             features=features,
             return_index=True,
             return_inverse=True,
         )
-
+        # print(f"coords: {coords.shape}")
+        # print(f"unique_map: {unique_map.shape}")
+        # print(f"unique_map: {unique_map}")
+        # print(f"inverse_map: {inverse_map.shape}")
+        # print(f"inverse_map: {inverse_map}")
         sample_coordinates = coords[unique_map]
-        coordinates = torch.from_numpy(sample_coordinates).int()
+        sample_coordinates = torch.from_numpy(sample_coordinates).int()
         sample_features = features[unique_map]
-        features = torch.from_numpy(sample_features).float()
+        sample_features = torch.from_numpy(sample_features).float()
         sample_labels = labels[unique_map]
         sample_labels = torch.from_numpy(sample_labels).long()
+        # print(f"sample_coordinates: {sample_coordinates.shape}")
+        # quit()
+        return sample_coordinates, points_ori, colors_ori, sample_features, unique_map, inverse_map, sample_labels
 
-        # coordinates, _ = ME.utils.sparse_collate(coords=coordinates, feats=features)
-        # features = torch.cat(features, dim=0)
-
-        return coordinates, points, colors, features, unique_map, inverse_map, sample_labels
 
     def __getitem__(self, idx):
         cell = self.cells[idx]
         assert len(cell.objects) >= 1
         object_points = batch_object_points(cell.objects, self.transform)
 
-        all_xyz, all_rgb, all_semantic, all_instance = self.get_all_points(cell.objects)
+        all_xyz, all_rgb, all_semantic, all_instance, center_clip_feature_pairs = self.get_all_points(cell.objects)
         coordinates, points, colors, features, unique_map, inverse_map, labels = self.prepare_data(all_xyz, all_rgb, all_semantic, all_instance)
         return {
             "cells": cell,
@@ -497,6 +519,9 @@ class Kitti360CoarseCellOnlyDataset(Dataset):
             "cells_unique_map": unique_map,
             "cells_inverse_map": inverse_map,
             "cells_labels": labels,
+
+            "cells_center_clip_feature_pairs": center_clip_feature_pairs
+
         }
 
     def __len__(self):

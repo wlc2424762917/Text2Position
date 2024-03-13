@@ -22,9 +22,55 @@ from models.object_encoder import ObjectEncoder
 
 
 from datapreparation.kitti360pose.imports import Object3d as Object3d_K360
-from models.modules import get_mlp, LanguageEncoder, Clip_LanguageEncoder, MaxPoolMultiHeadSelfAttention, Clip_LanguageEncoder_TransformerFuser, MaxPoolRelationMultiHeadSelfAttention, T5_LanguageEncoder
+from models.modules import get_mlp, TransformerWithMaxPool, LanguageEncoder, Clip_LanguageEncoder, MaxPoolMultiHeadSelfAttention, Clip_LanguageEncoder_TransformerFuser, MaxPoolRelationMultiHeadSelfAttention, T5_LanguageEncoder
 from models.cross_attention import TransformerCrossEncoderLayer, TransformerCrossEncoder
 
+
+COLORS = (
+    np.array(
+        [
+            [47.2579917, 49.75368454, 42.4153065],
+            [136.32696657, 136.95241796, 126.02741229],
+            [87.49822126, 91.69058836, 80.14558512],
+            [213.91030679, 216.25033052, 207.24611073],
+            [110.39218852, 112.91977458, 103.68638249],
+            [27.47505158, 28.43996795, 25.16840296],
+            [66.65951839, 70.22342483, 60.20395996],
+            [171.00852191, 170.05737735, 155.00130334],
+        ]
+    )
+    / 255.0
+)
+
+CLASS_TO_INDEX = {
+    "building": 0,
+    "pole": 1,
+    "traffic light": 2,
+    "traffic sign": 3,
+    "garage": 4,
+    "stop": 5,
+    "smallpole": 6,
+    "lamp": 7,
+    "trash bin": 8,
+    "vending machine": 9,
+    "box": 10,
+    "road": 11,
+    "sidewalk": 12,
+    "parking": 13,
+    "wall": 14,
+    "fence": 15,
+    "guard rail": 16,
+    "bridge": 17,
+    "tunnel": 18,
+    "vegetation": 19,
+    "terrain": 20,
+    "pad": 21,
+}
+
+COLOR_NAMES = ["dark-green", "gray", "gray-green", "bright-gray", "gray", "black", "green", "beige"]
+
+import MinkowskiEngine as ME
+from models.mask3d import Mask3D
 
 def get_mlp_offset(dims: List[int], add_batchnorm=False) -> nn.Sequential:
     """Return an MLP without trailing ReLU or BatchNorm for Offset/Translation regression.
@@ -95,6 +141,10 @@ class SuperGlueMatch(torch.nn.Module):
         else:
             self.language_encoder = LanguageEncoder(known_words, self.embed_dim, bi_dir=True)
 
+        # cell encoder
+        if args.no_objects:
+            self.cell_encoder = Mask3D()
+
         if args.use_cross_attention:
             cross_encoder_layer = TransformerCrossEncoderLayer(
                 d_model=embed_dim,  # Embedding dimension
@@ -111,10 +161,13 @@ class SuperGlueMatch(torch.nn.Module):
             # Create a TransformerCrossEncoder with a single layer
             self.transformer_cross_encoder = TransformerCrossEncoder(
                 cross_encoder_layer=cross_encoder_layer,
-                num_layers=2,
+                num_layers=4,
                 norm=nn.LayerNorm(embed_dim),
                 return_intermediate=False
             )
+
+        if args.no_superglue:
+            self.final_attn_pool = TransformerWithMaxPool(embed_dim, 8, 2, 1024)
         # offset prediction
         # if args.only_clip_semantic_feature:
         #     self.mlp_offsets = get_mlp_offset([512, 512 // 2, 2])
@@ -123,23 +176,24 @@ class SuperGlueMatch(torch.nn.Module):
 
         self.mlp_offsets = get_mlp_offset([self.embed_dim, self.embed_dim // 2, 2])
 
-        if args.only_clip_semantic_feature:
-            config = {
-                "descriptor_dim": self.embed_dim,
-                "GNN_layers": ["self", "cross"] * self.num_layers,
-                # 'GNN_layers': ['self', ] * self.num_layers,
-                "sinkhorn_iterations": self.sinkhorn_iters,
-                "match_threshold": 0.2,
-            }
-        else:
-            config = {
-                "descriptor_dim": self.embed_dim,
-                "GNN_layers": ["self", "cross"] * self.num_layers,
-                # 'GNN_layers': ['self', ] * self.num_layers,
-                "sinkhorn_iterations": self.sinkhorn_iters,
-                "match_threshold": 0.2,
-            }
-        self.superglue = SuperGlue(config)
+        if not args.no_superglue:
+            if args.only_clip_semantic_feature:
+                config = {
+                    "descriptor_dim": self.embed_dim,
+                    "GNN_layers": ["self", "cross"] * self.num_layers,
+                    # 'GNN_layers': ['self', ] * self.num_layers,
+                    "sinkhorn_iterations": self.sinkhorn_iters,
+                    "match_threshold": 0.2,
+                }
+            else:
+                config = {
+                    "descriptor_dim": self.embed_dim,
+                    "GNN_layers": ["self", "cross"] * self.num_layers,
+                    # 'GNN_layers': ['self', ] * self.num_layers,
+                    "sinkhorn_iterations": self.sinkhorn_iters,
+                    "match_threshold": 0.2,
+                }
+            self.superglue = SuperGlue(config)
 
         print("DEVICE", self.get_device())
 
@@ -168,6 +222,7 @@ class SuperGlueMatch(torch.nn.Module):
             )  # [B, num_hints, DIM]
             hint_encodings = F.normalize(hint_encodings, dim=-1)  # Norming those too
         # print("hint_encodings", hint_encodings.shape)
+
         """
         Object encoder
         """
@@ -187,36 +242,39 @@ class SuperGlueMatch(torch.nn.Module):
         desc1 = hint_encodings.transpose(1, 2)  # [B, DIM, num_hints]
         # print("obj:", desc0.shape, "hint:", desc1.shape)
 
-        matcher_output = self.superglue(desc0, desc1)
+        if not self.args.no_superglue:
+            matcher_output = self.superglue(desc0, desc1)
 
-        # Initialize a list to store the extracted objects
-        extracted_objects = []
-        hints = matcher_output["matches1"]
-        # print(hints.shape)
-        # print(len(hints))
-        # all_pad = 0
-        for batch_idx in range(len(hints)):
-            # Extract indices for this batch
-            indices = hints[batch_idx]
+            # Initialize a list to store the extracted objects
+            extracted_objects = []
+            hints = matcher_output["matches1"]
+            # print(hints.shape)
+            # print(len(hints))
+            # all_pad = 0
+            for batch_idx in range(len(hints)):
+                # Extract indices for this batch
+                indices = hints[batch_idx]
 
-            # Filter out -1 (or any invalid index)
-            valid_indices = indices[indices >= 0]
+                # Filter out -1 (or any invalid index)
+                valid_indices = indices[indices >= 0]
 
-            # Extract objects corresponding to valid indices
-            objs = object_encodings[batch_idx, valid_indices]
+                # Extract objects corresponding to valid indices
+                objs = object_encodings[batch_idx, valid_indices]
 
-            # 计算需要补齐的长度
-            pad_size = 6 - objs.shape[0]
-            # all_pad += pad_size
-            # 如果需要，进行补齐
-            if pad_size > 0:
-                objs = F.pad(objs, (0, 0, 0, pad_size), 'constant', 0)
+                # 计算需要补齐的长度
+                pad_size = 6 - objs.shape[0]
+                # all_pad += pad_size
+                # 如果需要，进行补齐
+                if pad_size > 0:
+                    objs = F.pad(objs, (0, 0, 0, pad_size), 'constant', 0)
 
-            # Append the extracted objects to the list
-            extracted_objects.append(objs)
-        extracted_objects = torch.stack(extracted_objects)
-        # print("extracted_objects", extracted_objects.shape, "hints:", hint_encodings.shape)
-        # print("all_pad", all_pad)
+                # Append the extracted objects to the list
+                extracted_objects.append(objs)
+            extracted_objects = torch.stack(extracted_objects)
+            # print("extracted_objects", extracted_objects.shape, "hints:", hint_encodings.shape)
+            # print("all_pad", all_pad)
+        else:
+            extracted_objects = object_encodings
 
         # TODO: cross attention between object and hint
         if self.args.use_cross_attention:
@@ -229,25 +287,182 @@ class SuperGlueMatch(torch.nn.Module):
                 hint_encodings_c, extracted_objects_c = hint_encodings.transpose(0, 1), extracted_objects.transpose(0, 1)
                 hint_encodings_c, object_encodings_c, _ = self.transformer_cross_encoder(hint_encodings_c, extracted_objects_c)
                 hint_encodings, object_encodings = hint_encodings_c[0].transpose(0, 1) + hint_encodings, object_encodings_c[0].transpose(0, 1) + extracted_objects
+
+        if self.args.no_superglue:
+            hint_encodings = self.final_attn_pool(hint_encodings.transpose(0, 1))
         """
         Predict offsets from hints
         """
         offsets = self.mlp_offsets(hint_encodings)  # [B, num_hints, 2]
+        if not self.args.no_superglue:
+            outputs = EasyDict()
+            outputs.P = matcher_output["P"]  # [B, num_obj, num_hints]
+            outputs.matches0 = matcher_output["matches0"]  # [B, num_obj]
+            outputs.matches1 = matcher_output["matches1"]  # [B, num_hints]
+            outputs.offsets = offsets
+            outputs.matching_scores0 = matcher_output["matching_scores0"]
+            outputs.matching_scores1 = matcher_output["matching_scores1"]
+        else:
+            outputs = EasyDict()
+            outputs.offsets = offsets
 
+        return outputs
+
+    def encode_cell(self, hints, cell_coordinates, cells_features, target, inverse_map, batched_raw_coordinates=None, batched_raw_color=None, num_query = 24, freeze_cell_encoder=False, use_queries=False, offset=True,):
+
+        # print(f"batch_size: {batch_size}, num_objects: {num_objects}")
+        """
+        Encode the hints
+        """
+        if self.args.language_encoder == "CLIP_text" or self.args.language_encoder == "T5":
+            description_encodings_ori = self.language_encoder(hints)
+            description_encodings = self.language_linear(description_encodings_ori)
+            hint_encodings = F.normalize(description_encodings)
+        elif self.args.language_encoder == "T5_and_CLIP_text":
+            description_encodings_t5 = self.lanuage_encoder_t5(hints)
+            description_encodings_t5 = self.language_linear_t5(description_encodings_t5)
+            description_encodings = self.lanuage_encoder_clip(hints)
+            description_encodings = self.language_linear_clip(description_encodings)
+            hint_encodings = F.normalize(description_encodings)
+        else:
+            hint_encodings = torch.stack(
+                [self.language_encoder(hint_sample) for hint_sample in hints]
+            )  # [B, num_hints, DIM]
+            hint_encodings = F.normalize(hint_encodings, dim=-1)  # Norming those too
+        # print("hint_encodings", hint_encodings.shape)
+
+        """
+        cell encoder
+        """
+        raw_coordinates = cells_features[:, -3:]
+        cells_features = cells_features[:, :-3]
+        data = ME.SparseTensor(
+            coordinates=cell_coordinates,
+            features=cells_features,
+            device=self.device,
+        )
+        # print(f"cell_coordinates: {cell_coordinates.shape}, cells_features: {cells_features.shape}")
+        # print(data.decomposed_features[0].shape)
+        for i in range(len(target)):
+            for key in target[i]:
+                # print(key)
+                target[i][key] = target[i][key].to(device=self.device)
+        # print(data.shape)
+
+        if freeze_cell_encoder:
+            with torch.no_grad():
+                output_dict = self.cell_encoder(data, point2segment=[
+                    target[i]["point2segment"] for i in range(len(target))], raw_coordinates=raw_coordinates,
+                                                is_eval=False)
+        else:
+            output_dict = self.cell_encoder(data, point2segment=[
+                target[i]["point2segment"] for i in range(len(target))], raw_coordinates=raw_coordinates, is_eval=False)
+
+        queries = output_dict['queries']  # B, N, 128
+        pred_class_list = []
+        pred_mask = output_dict['pred_masks']
+        mask_queries_list = []
+        center_queries_list = []
+        color_queries_list = []
+        rgb_queries_list = []
+
+        queries_feature_list = []
+        for i in range(len(output_dict['pred_masks'])):
+            # print(f"pred_masks: {output_dict['pred_masks'][i].shape}") # shape [N, num_query]
+            pred_class = []
+            mask_queries = []
+            center_queries = []
+            color_queries = []
+            rgb_queries = []
+            queries_feature = []
+
+            gt_class = target[i]['labels']
+            # print(f"gt_class: {gt_class}")
+            for j in range(num_query):
+                p_masks = torch.sigmoid(pred_mask[i][:, j])  # get sigmoid for instance masks
+                m = p_masks > 0.5  # get the instance mask
+                c_m = p_masks[m].sum() / (m.sum() + 1e-8)  # get the confidence of the instance mask
+                c_label = torch.max(output_dict['pred_logits'][i][j])
+                c_label_i = torch.argmax(output_dict['pred_logits'][i][j], dim=-1)
+                c = c_label * c_m  # combine the confidence of the semantic label and the instance mask, unused
+                # print(f"m shape: {m.shape}")
+                # print(f"m: {m.sum()}")
+                # print(f"c: {c}")
+                # print(f"c_label_i: {c_label_i}", f"c: {c}")
+                if c < 4 or m.sum() == 0 or c_label_i == 21:
+                    continue
+                # print(f"inverse_map[i]: {inverse_map[i].shape}")
+                mask = m[inverse_map[i]]  # mapping the mask back to the original point scloud
+                coordinates_b = batched_raw_coordinates[i]
+                coordinates_b = torch.from_numpy(coordinates_b).to(self.device)
+                # print(f"coordinates_b: {coordinates_b.shape}")
+                coordinates_b_mask = coordinates_b[mask == 1]
+                mask_queries.append(coordinates_b_mask)
+                center_queries.append(torch.mean(coordinates_b_mask, dim=0) / 30)
+                color_b = batched_raw_color[i]
+                # print(f"color_b: {color_b.shape}")
+                # print(f"color_b: {color_b}")
+                indices = mask == 1
+                # print(f"indices: {indices}")
+                # print(f"indices: {sum(indices)}")
+                color_b_mask = color_b[indices.cpu().numpy()]
+                color_b_mask_mean = np.mean(color_b_mask, axis=0)
+                dists = np.linalg.norm(color_b_mask_mean - COLORS, axis=1)
+                color_name = COLOR_NAMES[np.argmin(dists)]
+                if offset:
+                    c_label_i += 1
+                # print(f"c_label_i: {c_label_i}, color_name: {color_name}", "center: ", torch.mean(coordinates_b_mask, dim=0)/30, f"c: {c}")
+                color_name_index = COLOR_NAMES.index(color_name)
+                color_queries.append(torch.from_numpy(np.array([color_name_index])).to(self.device))
+                rgb_queries.append(torch.from_numpy(color_b_mask_mean).to(self.device))
+                pred_class.append(c_label_i)
+                # print(f"coordinates_b_mask: {coordinates_b_mask.shape}")
+                # print(f"mask: {mask.shape}")
+                # print(f"mask: {mask.sum()}")
+                # print(f"confidence: {c}")
+                queries_feature.append(queries[i, j])
+            assert len(mask_queries) == len(center_queries) == len(color_queries) == len(rgb_queries) == len(
+                pred_class) == len(queries_feature)
+            mask_queries_list.append(mask_queries)  # mask 非等长 无法stack
+            center_queries_list.append(center_queries)  # center 等长 可以stack
+            color_queries_list.append(color_queries)  # color 等长 可以stack
+            rgb_queries_list.append(rgb_queries)
+            pred_class_list.append(pred_class)
+            queries_feature_list.append(queries_feature)
+        assert len(mask_queries_list) == len(center_queries_list) == len(color_queries_list) == len(
+            rgb_queries_list) == len(pred_class_list) == len(queries_feature_list)
+
+
+        """
+        Object encoder
+        """
+        if self.use_queries:
+            object_encodings, class_embedding, color_embedding, pos_embedding, num_points_embedding, relation_embedding = self.object_encoder.forward_cell(class_indices=pred_class_list, color_indices=color_queries_list, rgbs=rgb_queries_list, positions=center_queries_list, queries=queries_feature_list)
+        else:
+            object_encodings, class_embedding, color_embedding, pos_embedding, num_points_embedding, relation_embedding = self.object_encoder.forward_cell(class_indices=pred_class_list, color_indices=color_queries_list, rgbs=rgb_queries_list, positions=center_queries_list)
+
+        extracted_objects = object_encodings
+
+        # TODO: cross attention between object and hint
+        if self.args.use_cross_attention:
+            if self.args.language_encoder == "T5_and_CLIP_text":
+                description_encodings_t5, extracted_objects = description_encodings_t5.transpose(0, 1), extracted_objects.transpose(0, 1)
+                hint_encodings, object_encodings, _ = self.transformer_cross_encoder(description_encodings_t5, extracted_objects)
+                hint_encodings, object_encodings = hint_encodings[0].transpose(0, 1), object_encodings[0].transpose(0, 1)
+            else:
+                # print(f"hint_encodings: {hint_encodings.shape}, extracted_objects: {extracted_objects.shape}")
+                hint_encodings_c, extracted_objects_c = hint_encodings.transpose(0, 1), extracted_objects.transpose(0, 1)
+                hint_encodings_c, object_encodings_c, _ = self.transformer_cross_encoder(hint_encodings_c, extracted_objects_c)
+                hint_encodings, object_encodings = hint_encodings_c[0].transpose(0, 1) + hint_encodings, object_encodings_c[0].transpose(0, 1) + extracted_objects
+
+        if self.args.no_superglue:
+            hint_encodings = self.final_attn_pool(hint_encodings.transpose(0, 1))
+        """
+        Predict offsets from hints
+        """
+        offsets = self.mlp_offsets(hint_encodings)  # [B, num_hints, 2]
         outputs = EasyDict()
-        outputs.P = matcher_output["P"]  # [B, num_obj, num_hints]
-        outputs.matches0 = matcher_output["matches0"]  # [B, num_obj]
-        outputs.matches1 = matcher_output["matches1"]  # [B, num_hints]
-
         outputs.offsets = offsets
-
-        # print(f"output_p: {outputs.P[0]}")
-        # print("matcher_output", outputs.matches0.shape, outputs.matches1.shape)
-        # print("matcher_output", outputs.matches0[0], outputs.matches1[0])
-        # quit()
-
-        outputs.matching_scores0 = matcher_output["matching_scores0"]
-        outputs.matching_scores1 = matcher_output["matching_scores1"]
 
         return outputs
 

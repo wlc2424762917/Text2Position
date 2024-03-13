@@ -124,8 +124,10 @@ def run_coarse(model, dataloader, args):
         pose = dataloader.dataset.all_poses[i_sample]
         top_cells = [all_cells_dict[cell_id] for cell_id in retrievals[i_sample]]
         pos_in_cells = 0.5 * np.ones((len(top_cells), 2))  # Predict cell-centers
-        accs = calc_sample_accuracies(pose, top_cells, pos_in_cells, args.top_k, args.threshs)
-
+        accs, wrong_cell_pairs = calc_sample_accuracies(pose, top_cells, pos_in_cells, args.top_k, args.threshs)
+        print(f"wrong_cell_name: {wrong_cell_pairs}")
+        print(f"gt_pose.cell_id: {pose.cell_id}")
+        print(f"pred_cell_ids: {retrievals[i_sample]}")
         for k in args.top_k:
             for t in args.threshs:
                 accuracies[k][t].append(accs[k][t])

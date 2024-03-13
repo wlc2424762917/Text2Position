@@ -162,9 +162,6 @@ class Kitti360BaseDataset(Dataset):
         batch = {}
         for key in data[0].keys():
             batch[key] = [data[i][key] for i in range(len(data))]
-        # print(batch.keys())
-        # print(batch["cells_features"])
-        # quit()
         return batch
 
     def collate_fn_cell(data):
@@ -233,6 +230,71 @@ class Kitti360BaseDataset(Dataset):
 
         return batch
 
+    def collate_fn_cell_no_offset(data):
+        batch = {}
+        for key in data[0].keys():
+            batch[key] = [data[i][key] for i in range(len(data))]
+        # print(f"batch['cells_coor']: {batch['cells_coordinates'][0].shape}")
+        input_dict = {"coords": batch["cells_coordinates"], "feats": batch["cells_features"]}
+        if len(batch["cells_labels"]) > 0:
+            input_dict["labels"] = batch["cells_labels"]
+            # for i in range(len(input_dict["labels"])):
+            #     # change np to torch long
+            #     input_dict["labels"][i] = torch.from_numpy(input_dict["labels"][i]).long()
+            coordinates, features, labels = ME.utils.sparse_collate(**input_dict)
+        else:
+            coordinates, features = ME.utils.sparse_collate(**input_dict)
+            labels = torch.Tensor([])
+
+        input_dict["segment2label"] = []
+        target = []
+
+        if "labels" in input_dict:
+            for i in range(len(input_dict["labels"])):
+                # TODO BIGGER CHANGE CHECK!!!
+                _, ret_index, ret_inv = np.unique(
+                    input_dict["labels"][i][:, -1],
+                    return_index=True,
+                    return_inverse=True,
+                )
+                input_dict["labels"][i][:, -1] = torch.from_numpy(ret_inv)
+                input_dict["segment2label"].append(
+                    input_dict["labels"][i][ret_index][:, :-1]
+                )
+
+            list_labels = input_dict["labels"]
+
+            if len(list_labels[0].shape) == 1:  # 1D labels
+                for batch_id in range(len(list_labels)):
+                    label_ids = list_labels[batch_id].unique()
+                    if 255 in label_ids:
+                        label_ids = label_ids[:-1]
+
+                    target.append(
+                        {
+                            "labels": label_ids,
+                            "masks": list_labels[batch_id]
+                                     == label_ids.unsqueeze(1),
+                        }
+                    )
+            else:
+                target = get_instance_masks(
+                    list_labels,
+                    list_segments=input_dict["segment2label"],
+                    task="instance_segmentation",
+                    ignore_class_threshold=100,
+                    filter_out_classes=[],
+                    label_offset=0,
+                )
+                for i in range(len(target)):
+                    target[i]["point2segment"] = input_dict["labels"][i][:, 2]
+
+        batch["cells_coordinates"] = coordinates
+        batch["cells_features"] = features
+        batch["cells_labels"] = labels
+        batch["cells_targets"] = target
+
+        return batch
 
 def get_instance_masks(
     list_labels,

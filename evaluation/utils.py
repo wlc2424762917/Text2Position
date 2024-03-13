@@ -50,8 +50,13 @@ def calc_sample_accuracies(pose, top_cells, pos_in_cells, top_k, threshs):
     cell_scene_names = np.array([cell.id.split("_")[0] for cell in top_cells])
     dists[pose_scene_name != cell_scene_names] = np.inf
 
+    # Find mismatched cell scene names
+    mismatched_indices = np.where(pose_scene_name != cell_scene_names)[0]
+    mismatched_scene_names = cell_scene_names[mismatched_indices]
+    gt_cell_scene = pose_scene_name[mismatched_indices]
+
     # Calculate the accuracy: is one of the top-k dists small enough?
-    return {k: {t: np.min(dists[0:k]) <= t for t in threshs} for k in top_k}
+    return {k: {t: np.min(dists[0:k]) <= t for t in threshs} for k in top_k}, (mismatched_scene_names, gt_cell_scene)
 
 
 def print_accuracies(accs, name=""):

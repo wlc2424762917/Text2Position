@@ -22,7 +22,7 @@ import MinkowskiEngine as ME
 #from dataloading.semantic3d.semantic3d import Semantic3dCellRetrievalDataset
 #from dataloading.semantic3d.semantic3d_poses import Semantic3dPosesDataset
 from models.mask3d import Mask3D
-CUDA_LAUNCH_BLOCKING=1
+
 
 COLORS = (
     np.array(
@@ -66,7 +66,6 @@ CLASS_TO_INDEX = {
 }
 
 COLOR_NAMES = ["dark-green", "gray", "gray-green", "bright-gray", "gray", "black", "green", "beige"]
-from training.matcher import HungarianMatcher
 
 
 class CellRetrievalNetwork(torch.nn.Module):
@@ -86,8 +85,6 @@ class CellRetrievalNetwork(torch.nn.Module):
         self.use_clip_semantic_feature = args.use_clip_semantic_feature
         self.use_relation_transformer = args.use_relation_transformer
         self.args = args
-        if args.teacher_model or args.distill_cell_feature:
-            self.matcher = HungarianMatcher(cost_class=2, cost_mask=5, cost_dice=2, num_points=-1)
         embed_dim = self.embed_dim
 
         assert args.variation in (0, 1)
@@ -134,7 +131,7 @@ class CellRetrievalNetwork(torch.nn.Module):
         if self.args.no_objects:
             # self.cell_encoder = ResNet34(in_channels=3, out_channels=embed_dim, D=3)
             self.cell_encoder = Mask3D()
-            self.cell_encoder.eval()
+
 
         """
         Textual path
@@ -280,11 +277,6 @@ class CellRetrievalNetwork(torch.nn.Module):
 
     def encode_cell(self, cell_coordinates, cells_features, target, inverse_map, batched_raw_coordinates=None, batched_raw_color=None, num_query = 24, freeze_cell_encoder=False, use_queries=False, offset=True):
         # print(f"cell_coordinates: {cell_coordinates.shape}, cells_features: {cells_features.shape}")
-        # print(f"target_mask: {target[0]['masks'].shape}")
-        # print(f"target_mask: {target[0]['masks']}")
-        # print(f"batched_raw_coordinates: {batched_raw_coordinates[0].shape}")
-        # print(f"batched_raw_coordinates: {batched_raw_coordinates[0]}")
-
         raw_coordinates =cells_features[:, -3:]
         cells_features = cells_features[:, :-3]
         data = ME.SparseTensor(
@@ -292,7 +284,8 @@ class CellRetrievalNetwork(torch.nn.Module):
             features=cells_features,
             device=self.device,
         )
-
+        # print(f"cell_coordinates: {cell_coordinates.shape}, cells_features: {cells_features.shape}")
+        # print(data.decomposed_features[0].shape)
         for i in range(len(target)):
             for key in target[i]:
                 # print(key)
@@ -335,7 +328,6 @@ class CellRetrievalNetwork(torch.nn.Module):
         rgb_queries_list = []
         queries_feature_list = []
 
-        # TODO rematching the index
         for i in range(len(output_dict['pred_masks'])):
             # print(f"pred_masks: {output_dict['pred_masks'][i].shape}") # shape [N, num_query]
             pred_class = []
@@ -343,11 +335,11 @@ class CellRetrievalNetwork(torch.nn.Module):
             center_queries = []
             color_queries = []
             rgb_queries = []
+
             queries_feature = []
 
             gt_class = target[i]['labels']
-            # print(f"gt_class: {gt_class+1}")
-            # print(f"gt_class: {gt_class}")
+            #print(f"gt_class: {gt_class}")
             for j in range(num_query):
                 p_masks = torch.sigmoid(pred_mask[i][:, j])  # get sigmoid for instance masks
                 m = p_masks > 0.5  # get the instance mask
@@ -391,7 +383,6 @@ class CellRetrievalNetwork(torch.nn.Module):
                 # print(f"mask: {mask.sum()}")
                 # print(f"confidence: {c}")
                 queries_feature.append(queries[i, j])
-            # print(f"pred_class: {pred_class}")
             assert len(mask_queries) == len(center_queries) == len(color_queries) == len(rgb_queries) == len(pred_class) == len(queries_feature)
             mask_queries_list.append(mask_queries)  # mask 非等长 无法stack
             center_queries_list.append(center_queries)  # center 等长 可以stack
@@ -400,7 +391,6 @@ class CellRetrievalNetwork(torch.nn.Module):
             pred_class_list.append(pred_class)
             queries_feature_list.append(queries_feature)
         assert len(mask_queries_list) == len(center_queries_list) == len(color_queries_list) == len(rgb_queries_list) == len(pred_class_list) == len(queries_feature_list)
-        # quit()
         # center_queries_list_tensor = torch.stack([torch.stack(center_queries) for center_queries in center_queries_list])
         # color_queries_list_tensor = torch.stack([torch.stack(color_queries) for color_queries in color_queries_list])
         # rgb_queries_list_tensor = torch.stack([torch.stack(rgb_queries) for rgb_queries in rgb_queries_list])
@@ -420,12 +410,10 @@ class CellRetrievalNetwork(torch.nn.Module):
                 batch.append(i_batch)
         batch = torch.tensor(batch, dtype=torch.long, device=self.device)
 
-        if self.args.use_queries or self.args.distill_query_embedding:
-            embeddings, class_embeddings, color_embeddings, pos_embeddings, num_points_embeddings, relation_embedding, query_embedding = self.object_encoder.forward_cell(class_indices=pred_class_list, color_indices=color_queries_list, rgbs=rgb_queries_list, positions=center_queries_list, queries=queries_feature_list)
-        # elif self.args.teacher_moddel:
-        #     embeddings, class_embeddings, color_embeddings, pos_embeddings, num_points_embeddings, relation_embedding, query_embedding = self.object_encoder.forward_cell(class_indices=pred_class_list, color_indices=color_queries_list, rgbs=rgb_queries_list, positions=center_queries_list, queries=queries_feature_list)
+        if self.args.use_queries:
+            embeddings, class_embeddings, color_embeddings, pos_embeddings, num_points_embeddings, relation_embedding = self.object_encoder.forward_cell(class_indices=pred_class_list, color_indices=color_queries_list, rgbs=rgb_queries_list, positions=center_queries_list, queries=queries_feature_list)
         else:
-            embeddings, class_embeddings, color_embeddings, pos_embeddings, num_points_embeddings, relation_embedding= self.object_encoder.forward_cell(class_indices=pred_class_list, color_indices=color_queries_list, rgbs=rgb_queries_list, positions=center_queries_list)
+            embeddings, class_embeddings, color_embeddings, pos_embeddings, num_points_embeddings, relation_embedding = self.object_encoder.forward_cell(class_indices=pred_class_list, color_indices=color_queries_list, rgbs=rgb_queries_list, positions=center_queries_list)
         # print(embeddings.shape)
         # print(f"embeddings: {embeddings.shape}, class_embeddings: {class_embeddings.shape}, color_embeddings: {color_embeddings.shape}, pos_embeddings: {pos_embeddings.shape}, relation_embedding: {relation_embedding.shape}")
         # quit()
@@ -444,189 +432,8 @@ class CellRetrievalNetwork(torch.nn.Module):
         x = F.normalize(x)
         # print(f"x shape: {x.shape}")
         # quit()
-        if self.args.distill_query_embedding:
-            return x, output_dict, query_embedding, class_embeddings
+
         return x, output_dict
-
-    def encode_cell_distill(self, cell_coordinates, cells_features, target, inverse_map, batched_raw_coordinates=None, batched_raw_color=None, num_query = 24, freeze_cell_encoder=False, use_queries=False, offset=True, cell_feature=False, attention_feature=False):
-        # print(f"cell_coordinates: {cell_coordinates.shape}, cells_features: {cells_features.shape}")
-        raw_coordinates =cells_features[:, -3:]
-        cells_features = cells_features[:, :-3]
-        data = ME.SparseTensor(
-            coordinates=cell_coordinates,
-            features=cells_features,
-            device=self.device,
-        )
-        # print(f"cell_coordinates: {cell_coordinates.shape}, cells_features: {cells_features.shape}")
-        # print(data.decomposed_features[0].shape)
-        for i in range(len(target)):
-            for key in target[i]:
-                # print(key)
-                target[i][key] = target[i][key].to(device=self.device)
-        # print(data.shape)
-
-        if freeze_cell_encoder:
-            with torch.no_grad():
-                output_dict = self.cell_encoder(data, point2segment=[
-                    target[i]["point2segment"] for i in range(len(target))], raw_coordinates=raw_coordinates, is_eval=False)
-        else:
-            output_dict = self.cell_encoder(data, point2segment=[
-                        target[i]["point2segment"] for i in range(len(target))], raw_coordinates=raw_coordinates, is_eval=False)
-
-        outputs_without_aux = {
-            k: v for k, v in output_dict.items() if k != "aux_outputs"
-        }
-
-        # Retrieve the matching between the outputs of the last layer and the targets
-        match_indices = self.matcher(outputs_without_aux, target, "masks")
-        # print(f"indices: {match_indices}")
-
-        queries = output_dict['queries']  # B, N, 128
-        # get instance mask center and instance color and instance
-        # TODO: add instance point num
-        pred_class_list = []
-        pred_mask = output_dict['pred_masks']
-        mask_queries_list = []
-        center_queries_list = []
-        color_queries_list = []
-        rgb_queries_list = []
-        queries_feature_list = []
-
-        gt_class_list = []
-        gt_mask_list = []
-        gt_center_list = []
-        gt_color_list = []
-        gt_rgb_list = []
-
-        for i in range (len(match_indices)):
-            valid_pred_ids = match_indices[i][0]
-            valid_gt_ids = match_indices[i][1]
-
-            pred_class = []
-            mask_queries = []
-            center_queries = []
-            color_queries = []
-            rgb_queries = []
-            queries_feature = []
-
-            gt_classes = []
-            gt_masks = []
-            gt_centers = []
-            gt_colors = []
-            gt_rgbs = []
-
-            gt_class = target[i]['labels']
-            # print(f"gt_class: {gt_class + 1}")
-
-            for j in range(len(valid_gt_ids)):
-                valid_pred_id = valid_pred_ids[j]
-                valid_gt_id = valid_gt_ids[j]
-                p_masks = torch.sigmoid(pred_mask[i][:, valid_pred_id])  # get sigmoid for instance masks
-                m = p_masks > 0.5  # get the instance mask
-                c_m = p_masks[m].sum() / (m.sum() + 1e-8)  # get the confidence of the instance mask
-                c_label = torch.max(output_dict['pred_logits'][i][valid_pred_id])
-                c_label_i = torch.argmax(output_dict['pred_logits'][i][valid_pred_id], dim=-1)
-                c = c_label * c_m  # combine the confidence of the semantic label and the instance mask, unused
-                # print(f"m shape: {m.shape}")
-                # print(f"m: {m.sum()}")
-                # print(f"c: {c}")
-                # print(f"c_label_i: {c_label_i}", f"c: {c}")
-                if c<4 or m.sum()==0 or c_label_i==21:
-                    continue
-                mask = m[inverse_map[i]]  # mapping the mask back to the original point scloud
-                coordinates_b = batched_raw_coordinates[i]
-                coordinates_b = torch.from_numpy(coordinates_b).to(self.device)
-                coordinates_b_mask = coordinates_b[mask == 1]
-                mask_queries.append(coordinates_b_mask)
-                center_queries.append(torch.mean(coordinates_b_mask, dim=0) / 30)
-                color_b = batched_raw_color[i]
-                # print(f"color_b: {color_b.shape}")
-                # print(f"color_b: {color_b}")
-                indices = mask == 1
-                # print(f"indices: {indices}")
-                # print(f"indices: {sum(indices)}")
-                color_b_mask = color_b[indices.cpu().numpy()]
-                color_b_mask_mean = np.mean(color_b_mask, axis=0)
-                dists = np.linalg.norm(color_b_mask_mean - COLORS, axis=1)
-                color_name = COLOR_NAMES[np.argmin(dists)]
-                if offset:
-                    c_label_i += 1
-                # print(f"c_label_i: {c_label_i}, color_name: {color_name}", "center: ", torch.mean(coordinates_b_mask, dim=0)/30, f"c: {c}")
-                color_name_index = COLOR_NAMES.index(color_name)
-                color_queries.append(torch.from_numpy(np.array([color_name_index])).to(self.device))
-                rgb_queries.append(torch.from_numpy(color_b_mask_mean).to(self.device))
-                pred_class.append(c_label_i)
-                # print(f"coordinates_b_mask: {coordinates_b_mask.shape}")
-                # print(f"mask: {mask.shape}")
-                # print(f"mask: {mask.sum()}")
-                # print(f"confidence: {c}")
-                queries_feature.append(queries[i, j])
-
-                # gt stuffs
-                if offset:
-                    gt_class_target = target[i]['labels'][valid_gt_id] + 1
-                else:
-                    gt_class_target = target[i]['labels'][valid_gt_id]
-                gt_classes.append(gt_class_target)
-                # print(f"gt_classes: {gt_class_target}")
-                gt_mask = target[i]['masks'][valid_gt_id]
-                gt_mask = gt_mask[inverse_map[i]]
-                coordinates_b_gt_mask = coordinates_b[gt_mask]
-                gt_masks.append(coordinates_b_gt_mask)
-                gt_centers.append(torch.mean(coordinates_b_gt_mask, dim=0) / 30)
-                # print(f"gt_centers: {torch.mean(coordinates_b_gt_mask, dim=0) / 30}")
-                color_b_gt_mask = color_b[gt_mask.cpu().numpy()]
-                color_b_gt_mask_mean = np.mean(color_b_gt_mask, axis=0)
-                dists = np.linalg.norm(color_b_gt_mask_mean - COLORS, axis=1)
-                color_name = COLOR_NAMES[np.argmin(dists)]
-                # print(f"color_name: {color_name}")
-                color_name_index = COLOR_NAMES.index(color_name)
-                gt_colors.append(torch.from_numpy(np.array([color_name_index])).to(self.device))
-                gt_rgbs.append(torch.from_numpy(color_b_gt_mask_mean).to(self.device))
-            assert len(gt_classes) == len(gt_masks) == len(gt_centers) == len(gt_colors) == len(gt_rgbs) == len(pred_class) == len(queries_feature) == len(mask_queries) == len(center_queries) == len(color_queries) == len(rgb_queries)
-            mask_queries_list.append(mask_queries)  # mask 非等长 无法stack
-            center_queries_list.append(center_queries)  # center 等长 可以stack
-            color_queries_list.append(color_queries)  # color 等长 可以stack
-            rgb_queries_list.append(rgb_queries)
-            pred_class_list.append(pred_class)
-            queries_feature_list.append(queries_feature)
-
-            gt_class_list.append(gt_classes)
-            gt_mask_list.append(gt_masks)
-            gt_center_list.append(gt_centers)
-            gt_color_list.append(gt_colors)
-            gt_rgb_list.append(gt_rgbs)
-            assert len(gt_class_list) == len(gt_mask_list) == len(gt_center_list) == len(gt_color_list) == len(gt_rgb_list) == len(mask_queries_list) == len(center_queries_list) == len(color_queries_list) == len(rgb_queries_list) == len(pred_class_list) == len(queries_feature_list)
-            # quit()
-
-        batch = []  # Batch tensor to send into PyG
-        for i_batch, objects_sample in enumerate(mask_queries_list):
-            for obj in objects_sample:
-                batch.append(i_batch)
-        batch = torch.tensor(batch, dtype=torch.long, device=self.device)
-
-        if self.args.teacher_model:
-            embeddings, class_embeddings, color_embeddings, pos_embeddings, num_points_embeddings, relation_embedding = self.object_encoder.forward_cell(class_indices=gt_class_list, color_indices=gt_color_list, rgbs=gt_rgb_list, positions=gt_center_list)
-        else: # TODO: change to teacher-student distill
-            embeddings, class_embeddings, color_embeddings, pos_embeddings, num_points_embeddings, relation_embedding = self.object_encoder.forward_cell(class_indices=pred_class_list, color_indices=color_queries_list, rgbs=rgb_queries_list, positions=center_queries_list, queries=queries_feature_list)
-
-        if self.use_relation_transformer:
-            embeddings = embeddings.to(self.device)
-            x = self.attn_pooling(embeddings, batch, relation_embedding)
-        else:
-            embeddings = embeddings.to(self.device)
-            x = self.attn_pooling(embeddings, batch)
-
-        x_ori = x
-        x = F.normalize(x)
-
-        if cell_feature:
-            return x_ori, output_dict
-        elif attention_feature:
-            # TODO: add attention matrix
-            return x_ori, output_dict
-        else:
-            return x, output_dict
 
     def forward(self):
         raise Exception("Not implemented.")
